@@ -541,25 +541,41 @@ class bitfinex2 (bitfinex):
                 price = record[0]
                 c = record[1]
                 amount = record[2]
-                side = 'bids' if (amount > 0) else 'asks'
+                side = None
+                isBid = None
+                if amount > 0:
+                    side = 'bids'
+                    isBid = True
+                else:
+                    side = 'asks'
+                    isBid = False
+                    amount = -amount
                 if c == 0:
                     # remove
-                    self.updateBidAsk([price, 0], symbolData['ob'][side], amount > 0)
+                    self.updateBidAsk([price, 0], symbolData['ob'][side], isBid)
                 else:
                     # update
-                    self.updateBidAsk([price, amount], symbolData['ob'][side], amount > 0)
+                    self.updateBidAsk([price, amount], symbolData['ob'][side], isBid)
         else:
             # update
             price = data[0]
             c = data[1]
             amount = data[2]
-            side = 'bids' if (amount > 0) else 'asks'
+            side = None
+            isBid = None
+            if amount > 0:
+                side = 'bids'
+                isBid = True
+            else:
+                side = 'asks'
+                isBid = False
+                amount = -amount
             if c == 0:
                 # remove
-                self.updateBidAsk([price, 0], symbolData['ob'][side], amount > 0)
+                self.updateBidAsk([price, 0], symbolData['ob'][side], isBid)
             else:
                 # update
-                self.updateBidAsk([price, amount], symbolData['ob'][side], amount > 0)
+                self.updateBidAsk([price, amount], symbolData['ob'][side], isBid)
         self.emit('ob', symbol, self._cloneOrderBook(symbolData['ob'], symbolData['limit']))
         self._contextSetSymbolData(contextId, 'ob', symbol, symbolData)
 
