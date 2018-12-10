@@ -689,7 +689,7 @@ class zb (Exchange):
         if not('sub-nonces' in list(data.keys())):
             data['sub-nonces'] = {}
         nonceStr = str(nonce)
-        handle = self._setTimeout(self.timeout, self._websocketMethodMap('_websocketTimeoutRemoveNonce'), [contextId, nonceStr, event, symbol, 'sub-nonces'])
+        handle = self._setTimeout(contextId, self.timeout, self._websocketMethodMap('_websocketTimeoutRemoveNonce'), [contextId, nonceStr, event, symbol, 'sub-nonces'])
         data['sub-nonces'][nonceStr] = handle
         data['limit'] = self.safe_value(params, 'limit')
         self._contextSetSymbolData(contextId, event, symbol, data)

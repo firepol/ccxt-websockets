@@ -8,6 +8,7 @@ import hashlib
 import json
 from ccxt.base.errors import ExchangeError
 from ccxt.base.errors import NotSupported
+from ccxt.base.errors import NetworkError
 
 
 class therock (Exchange):
@@ -384,7 +385,7 @@ class therock (Exchange):
             lastSeqId = lastSeqIdData[chan]
             lastSeqId = self.sum(lastSeqId, 1)
             if sequeceId != lastSeqId:
-                self.emit('err', 'sequence error in pusher connection ' + sequeceId + ' != ' + lastSeqId, contextId)
+                self.emit('err', NetworkError('sequence error in pusher connection ' + sequeceId + ' != ' + lastSeqId), contextId)
                 return
         lastSeqIdData[chan] = sequeceId
         self._contextSet(contextId, 'sequence', lastSeqIdData)
@@ -447,7 +448,7 @@ class therock (Exchange):
             symbolData['sub-nonces'] = {}
         symbolData['limit'] = self.safe_integer(params, 'limit', None)
         nonceStr = str(nonce)
-        handle = self._setTimeout(self.timeout, self._websocketMethodMap('_websocketTimeoutRemoveNonce'), [contextId, nonceStr, event, symbol, 'sub-nonce'])
+        handle = self._setTimeout(contextId, self.timeout, self._websocketMethodMap('_websocketTimeoutRemoveNonce'), [contextId, nonceStr, event, symbol, 'sub-nonce'])
         symbolData['sub-nonces'][nonceStr] = handle
         self._contextSetSymbolData(contextId, event, symbol, symbolData)
         # remove sequenceId

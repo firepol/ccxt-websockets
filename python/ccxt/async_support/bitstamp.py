@@ -855,16 +855,19 @@ class bitstamp (Exchange):
             self._websocket_handle_subscription(contextId, msg)
         elif evt == 'data':
             chan = self.safe_string(msg, 'channel')
-            if chan.find('order_book_') >= 0:
+            if chan.find('order_book') >= 0:
                 self._websocket_handle_orderbook(contextId, msg)
 
     def _websocket_handle_orderbook(self, contextId, msg):
         chan = self.safe_string(msg, 'channel')
         parts = chan.split('_')
-        symbol = self.find_symbol(parts[2])
+        id = 'btcusd'
+        if len(parts) > 2:
+            id = parts[2]
+        symbol = self.find_symbol(id)
         data = self.safe_value(msg, 'data')
         timestamp = self.safe_integer(data, 'timestamp')
-        ob = self.parse_order_book(data, timestamp)
+        ob = self.parse_order_book(data, timestamp * 1000)
         symbolData = self._contextGetSymbolData(contextId, 'ob', symbol)
         symbolData['ob'] = ob
         self.emit('ob', symbol, self._cloneOrderBook(ob, symbolData['limit']))
@@ -872,9 +875,12 @@ class bitstamp (Exchange):
 
     def _websocket_handle_subscription(self, contextId, msg):
         chan = self.safe_string(msg, 'channel')
-        if chan.find('order_book_') >= 0:
+        if chan.find('order_book') >= 0:
             parts = chan.split('_')
-            symbol = self.find_symbol(parts[2])
+            id = 'btcusd'
+            if len(parts) > 2:
+                id = parts[2]
+            symbol = self.find_symbol(id)
             symbolData = self._contextGetSymbolData(contextId, 'ob', symbol)
             if 'sub-nonces' in symbolData:
                 nonces = symbolData['sub-nonces']
@@ -895,25 +901,30 @@ class bitstamp (Exchange):
             symbolData['sub-nonces'] = {}
         symbolData['limit'] = self.safe_integer(params, 'limit', None)
         nonceStr = str(nonce)
-        handle = self._setTimeout(self.timeout, self._websocketMethodMap('_websocketTimeoutRemoveNonce'), [contextId, nonceStr, event, symbol, 'sub-nonce'])
+        handle = self._setTimeout(contextId, self.timeout, self._websocketMethodMap('_websocketTimeoutRemoveNonce'), [contextId, nonceStr, event, symbol, 'sub-nonce'])
         symbolData['sub-nonces'][nonceStr] = handle
         self._contextSetSymbolData(contextId, event, symbol, symbolData)
         # send request
-        id = self.market_id(symbol)
+        channel = 'order_book'
+        if symbol != 'BTC/USD':
+            id = self.market_id(symbol)
+            channel = channel + '_' + id
         self.websocketSendJson({
             'event': 'subscribe',
-            'channel': 'order_book_' + id,
+            'channel': channel,
         }, contextId)
 
     def _websocket_unsubscribe(self, contextId, event, symbol, nonce, params={}):
         if event != 'ob':
             raise NotSupported('unsubscribe ' + event + '(' + symbol + ') not supported for exchange ' + self.id)
-        id = self.market_id(symbol)
-        payload = {
+        channel = 'order_book'
+        if symbol != 'BTC/USD':
+            id = self.market_id(symbol)
+            channel = channel + '_' + id
+        self.websocketSendJson({
             'event': 'unsubscribe',
-            'channel': 'order_book_' + id,
-        }
-        self.websocketSendJson(payload)
+            'channel': channel,
+        })
         nonceStr = str(nonce)
         self.emit(nonceStr, True)
 

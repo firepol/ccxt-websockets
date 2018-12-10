@@ -613,7 +613,7 @@ class lbank (Exchange):
         if not('sub-nonces' in list(data.keys())):
             data['sub-nonces'] = {}
         nonceStr = str(nonce)
-        handle = self._setTimeout(self.timeout, self._websocketMethodMap('_websocketTimeoutRemoveNonce'), [contextId, nonceStr, event, symbol, 'sub-nonces'])
+        handle = self._setTimeout(contextId, self.timeout, self._websocketMethodMap('_websocketTimeoutRemoveNonce'), [contextId, nonceStr, event, symbol, 'sub-nonces'])
         data['sub-nonces'][nonceStr] = handle
         self._contextSetSymbolData(contextId, event, symbol, data)
         self.websocketSendJson(payload)
@@ -631,7 +631,7 @@ class lbank (Exchange):
         if not('unsub-nonces' in list(data.keys())):
             data['unsub-nonces'] = {}
         nonceStr = str(nonce)
-        handle = self._setTimeout(self.timeout, self._websocketMethodMap('_websocketTimeoutRemoveNonce'), [contextId, nonceStr, event, symbol, 'unsub-nonces'])
+        handle = self._setTimeout(contextId, self.timeout, self._websocketMethodMap('_websocketTimeoutRemoveNonce'), [contextId, nonceStr, event, symbol, 'unsub-nonces'])
         data['unsub-nonces'][nonceStr] = handle
         self._contextSetSymbolData(contextId, event, symbol, data)
         self.websocketSendJson(payload)

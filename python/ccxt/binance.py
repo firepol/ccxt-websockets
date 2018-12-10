@@ -1198,7 +1198,7 @@ class binance (Exchange):
                 self._contextSetSymbolData(contextId, 'ob', symbol, symbolData)
                 if not('snaplaunched' in list(data.keys())):
                     data['snaplaunched'] = True
-                    self._executeAndCallback(self._websocketMethodMap('fetchOrderBook'), [symbol], self._websocketMethodMap('_websocketHandleObRestSnapshot'), {
+                    self._executeAndCallback(contextId, self._websocketMethodMap('fetchOrderBook'), [symbol], self._websocketMethodMap('_websocketHandleObRestSnapshot'), {
                         'symbol': symbol,
                         'contextId': contextId,
                     })

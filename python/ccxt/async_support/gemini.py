@@ -10,6 +10,7 @@ import json
 from ccxt.base.errors import ExchangeError
 from ccxt.base.errors import ArgumentsRequired
 from ccxt.base.errors import NotSupported
+from ccxt.base.errors import NetworkError
 
 
 class gemini (Exchange):
@@ -446,7 +447,7 @@ class gemini (Exchange):
         if lastSeqId is not None:
             lastSeqId = lastSeqId + 1
             if lastSeqId != seqId:
-                self.emit('err', ExchangeError('sequence id error in exchange: ' + self.id + '(' + lastSeqId + '+1 !=' + seqId + ')'), contextId)
+                self.emit('err', NetworkError('sequence id error in exchange: ' + self.id + '(' + str(lastSeqId) + '+1 !=' + str(seqId) + ')'), contextId)
                 return
         self._contextSet(contextId, 'sequence_id', seqId)
         symbol = self._contextGet(contextId, 'symbol')
@@ -473,6 +474,7 @@ class gemini (Exchange):
                         }
                     else:
                         timestamp = self.safe_float(msg, 'timestamp')
+                        timestamp = timestamp * 1000
                         symbolData['ob']['timestamp'] = timestamp
                         symbolData['ob']['datetime'] = self.iso8601(timestamp)
                     symbolData['ob']['nonce'] = self.safe_integer(msg, 'eventId')
@@ -506,6 +508,8 @@ class gemini (Exchange):
         self.emit(nonceStr, True)
 
     def _websocket_on_open(self, contextId, websocketConexConfig):
+        undef = None
+        self._contextSet(contextId, 'sequence_id', undef)
         url = websocketConexConfig['url']
         parts = url.split('?')
         partsLen = len(parts)

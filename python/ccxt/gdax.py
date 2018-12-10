@@ -786,7 +786,7 @@ class gdax (Exchange):
             symbolData['sub-nonces'] = {}
         symbolData['limit'] = self.safe_integer(params, 'limit', None)
         nonceStr = str(nonce)
-        handle = self._setTimeout(self.timeout, self._websocketMethodMap('_websocketTimeoutRemoveNonce'), [contextId, nonceStr, event, symbol, 'sub-nonce'])
+        handle = self._setTimeout(contextId, self.timeout, self._websocketMethodMap('_websocketTimeoutRemoveNonce'), [contextId, nonceStr, event, symbol, 'sub-nonce'])
         symbolData['sub-nonces'][nonceStr] = handle
         self._contextSetSymbolData(contextId, event, symbol, symbolData)
         # send request
@@ -810,7 +810,7 @@ class gdax (Exchange):
         if not('unsub-nonces' in list(symbolData.keys())):
             symbolData['unsub-nonces'] = {}
         nonceStr = str(nonce)
-        handle = self._setTimeout(self.timeout, self._websocketMethodMap('_websocketTimeoutRemoveNonce'), [contextId, nonceStr, event, symbol, 'unsub-nonces'])
+        handle = self._setTimeout(contextId, self.timeout, self._websocketMethodMap('_websocketTimeoutRemoveNonce'), [contextId, nonceStr, event, symbol, 'unsub-nonces'])
         symbolData['unsub-nonces'][nonceStr] = handle
         self._contextSetSymbolData(contextId, event, symbol, symbolData)
         self.websocketSendJson(payload)

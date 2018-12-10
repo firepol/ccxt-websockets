@@ -139,7 +139,7 @@ class okex (okcoinusd):
         heartbeatTimer = self._contextGet(contextId, 'heartbeattimer')
         if heartbeatTimer is not None:
             self._cancelTimer(heartbeatTimer)
-        heartbeatTimer = self._setTimer(
+        heartbeatTimer = self._setTimer(contextId, 
             30000,
             self._websocketMethodMap('_websocketSendHeartbeat'),
             [contextId]

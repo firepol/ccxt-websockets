@@ -19,6 +19,7 @@ from ccxt.base.errors import ArgumentsRequired
 from ccxt.base.errors import NullResponse
 from ccxt.base.errors import InvalidOrder
 from ccxt.base.errors import NotSupported
+from ccxt.base.errors import NetworkError
 
 
 class cex (Exchange):
@@ -607,7 +608,7 @@ class cex (Exchange):
         data = self._contextGetSymbolData(contextId, 'ob', symbol)
         if data['ob']['nonce'] != (resData['id'] - 1):
             self.websocketClose()
-            self.emit('err', ExchangeError('invalid orderbook sequence in ' + self.id + ' ' + data['ob']['nonce'] + ' != ' + resData['id'] + ' -1'))
+            self.emit('err', NetworkError('invalid orderbook sequence in ' + self.id + ' ' + data['ob']['nonce'] + ' != ' + resData['id'] + ' -1'))
         else:
             ob = self.mergeOrderBookDelta(data['ob'], resData, timestamp)
             ob['nonce'] = resData['id']
