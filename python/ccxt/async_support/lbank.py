@@ -133,7 +133,7 @@ class lbank (Exchange):
             },
         })
 
-    async def fetch_markets(self):
+    async def fetch_markets(self, params={}):
         markets = await self.publicGetAccuracy()
         result = []
         for i in range(0, len(markets)):
@@ -262,9 +262,12 @@ class lbank (Exchange):
 
     async def fetch_order_book(self, symbol, limit=60, params={}):
         await self.load_markets()
+        size = 60
+        if limit is not None:
+            size = min(limit, size)
         response = await self.publicGetDepth(self.extend({
             'symbol': self.market_id(symbol),
-            'size': min(limit, 60),
+            'size': size,
         }, params))
         return self.parse_order_book(response)
 

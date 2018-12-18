@@ -200,7 +200,7 @@ class bitfinex2 (bitfinex):
     def get_currency_id(self, code):
         return 'f' + code
 
-    def fetch_markets(self):
+    def fetch_markets(self, params={}):
         markets = self.v1GetSymbolsDetails()
         result = []
         for p in range(0, len(markets)):
@@ -357,7 +357,7 @@ class bitfinex2 (bitfinex):
 
     def fetch_ticker(self, symbol, params={}):
         self.load_markets()
-        market = self.markets[symbol]
+        market = self.market(symbol)
         ticker = self.publicGetTickerSymbol(self.extend({
             'symbol': market['id'],
         }, params))
@@ -505,7 +505,7 @@ class bitfinex2 (bitfinex):
             chanKey = '_' + str(chanId)
             channels = self._contextGet(contextId, 'channels')
             if not(chanKey in list(channels.keys())):
-                self.emit('err', ExchangeError(self.id + ' msg received from unregistered channels:' + chanId))
+                self.emit('err', ExchangeError(self.id + ' msg received from unregistered channels:' + chanId), contextId)
                 return
             symbol = channels[chanKey]['symbol']
             event = channels[chanKey]['event']
@@ -617,7 +617,7 @@ class bitfinex2 (bitfinex):
             chanKey = '_' + str(chanId)
             channels = self._contextGet(contextId, 'channels')
             if not(chanKey in list(channels.keys())):
-                self.emit('err', ExchangeError(self.id + ' msg received from unregistered channels:' + chanId))
+                self.emit('err', ExchangeError(self.id + ' msg received from unregistered channels:' + chanId), contextId)
                 return
             symbol = channels[chanKey]['symbol']
             event = channels[chanKey]['event']

@@ -4,13 +4,6 @@
 # https://github.com/ccxt/ccxt/blob/master/CONTRIBUTING.md#how-to-contribute-code
 
 from ccxt.async_support.base.exchange import Exchange
-
-# -----------------------------------------------------------------------------
-
-try:
-    basestring  # Python 3
-except NameError:
-    basestring = str  # Python 2
 import hashlib
 import math
 import json
@@ -263,111 +256,16 @@ class poloniex (Exchange):
         response = await self.publicGetReturnChartData(self.extend(request, params))
         return self.parse_ohlcvs(response, market, timeframe, since, limit)
 
-    def find_market(self, string):
-        if self.markets is None:
-            raise ExchangeError(self.id + ' markets not loaded')
-        # isNumeric = '/^\d+$/'.test(string)
-        # cannot transpile Number
-        # isNumeric = not Number.isNaN( int(string) )
-        # isNumeric = str(int(string)) == 'NaN'
-        isNumeric = True
-        if str(string) != string:
-            string = str(string)
-        i = 0
-        for i in range(0, len(string)):
-            c = string[i]
-            if c == '0':
-                continue
-            if c == '1':
-                continue
-            if c == '2':
-                continue
-            if c == '3':
-                continue
-            if c == '4':
-                continue
-            if c == '5':
-                continue
-            if c == '6':
-                continue
-            if c == '7':
-                continue
-            if c == '8':
-                continue
-            if c == '9':
-                continue
-            isNumeric = False
-            break
-        if isNumeric is True:
-            if string in self.markets_by_id2:
-                return self.markets_by_id2[string]
-        elif isinstance(string, basestring):
-            if string in self.markets_by_id:
-                return self.markets_by_id[string]
-            if string in self.markets:
-                return self.markets[string]
-        return string
-
-    def set_markets(self, markets, currencies=None):
-        # Poloniex uses an additional index for its curreny pairs
-        # id2 is string containing only numeric chars
-        # Calling super(poloniex, self).setMArkets does not transpile...
-        self.marketsById2 = self.index_by(markets, 'id2')
-        self.markets_by_id2 = self.marketsById2
-        return super(poloniex, self).set_markets(markets, currencies)
-        # Cannot use map
-        # values = Object.values(markets).map(market => self.deep_extend({
-        #     'limits': self.limits,
-        #     'precision': self.precision,
-        #}, self.fees['trading'], market))
-        # self.marketsById2 = self.index_by(markets, 'id2')
-        # self.markets_by_id2 = self.marketsById2
-        # self.markets = self.deep_extend(self.markets, self.index_by(values, 'symbol'))
-        # self.marketsById = self.index_by(markets, 'id')
-        # self.markets_by_id = self.marketsById
-        # self.symbols = list(self.markets).sort(.keys())
-        # self.ids = list(self.markets_by_id).sort(.keys())
-        # if currencies:
-        #     self.currencies = self.deep_extend(currencies, self.currencies)
-        # else:
-        #     baseCurrencies =
-        #         values.filter(market => 'base' in market)
-        #             .map market.baseNumericId if (market =>({
-        #                 id: market.baseId or market.base,
-        #                 numericId: (market.baseNumericId is not None) else None,
-        #                 code: market.base,
-        #                 precision: (market.precision.base or market.precision.amount) if market.precision else 8,
-        #             }))
-        #     quoteCurrencies =
-        #         values.filter(market => 'quote' in market)
-        #             .map market.quoteNumericId if (market =>({
-        #                 id: market.quoteId or market.quote,
-        #                 numericId: (market.quoteNumericId is not None) else None,
-        #                 code: market.quote,
-        #                 precision: (market.precision.quote or market.precision.price) if market.precision else 8,
-        #             }))
-        #     allCurrencies = baseCurrencies.concat(quoteCurrencies)
-        #     groupedCurrencies = self.group_by(allCurrencies, 'code')
-        #     currencies = list(groupedCurrencies.keys()).map(code =>
-        #         groupedCurrencies[code].reduce((previous, current) =>
-        #             previous if ((previous.precision > current.precision) else current), groupedCurrencies[code][0]))
-        #     sortedCurrencies = self.sort_by(flatten(currencies), 'code')
-        #     self.currencies = self.deep_extend(self.index_by(sortedCurrencies, 'code'), self.currencies)
-        #}
-        # self.currencies_by_id = self.index_by(self.currencies, 'id')
-        # return self.markets
-
-    async def fetch_markets(self):
+    async def fetch_markets(self, params={}):
         markets = await self.publicGetReturnTicker()
         keys = list(markets.keys())
         result = []
         for p in range(0, len(keys)):
             id = keys[p]
             market = markets[id]
-            # id2 = str(market['id'])
-            quote, base = id.split('_')
-            base = self.common_currency_code(base)
-            quote = self.common_currency_code(quote)
+            quoteId, baseId = id.split('_')
+            base = self.common_currency_code(baseId)
+            quote = self.common_currency_code(quoteId)
             symbol = base + '/' + quote
             minCost = self.safe_float(self.options['limits']['cost']['min'], quote, 0.0)
             precision = {
@@ -378,6 +276,8 @@ class poloniex (Exchange):
                 'id': id,
                 'id2': str(market['id']),
                 'symbol': symbol,
+                'baseId': baseId,
+                'quoteId': quoteId,
                 'base': base,
                 'quote': quote,
                 'active': True,
@@ -1027,13 +927,17 @@ class poloniex (Exchange):
         return response
 
     async def fetch_transactions(self, code=None, since=None, limit=None, params={}):
+        await self.load_markets()
         response = await self.fetch_transactions_helper(code, since, limit, params)
         for i in range(0, len(response['deposits'])):
             response['deposits'][i]['type'] = 'deposit'
         for i in range(0, len(response['withdrawals'])):
             response['withdrawals'][i]['type'] = 'withdrawal'
-        withdrawals = self.parseTransactions(response['withdrawals'], code, since, limit)
-        deposits = self.parseTransactions(response['deposits'], code, since, limit)
+        currency = None
+        if code is not None:
+            currency = self.currency(code)
+        withdrawals = self.parseTransactions(response['withdrawals'], currency, since, limit)
+        deposits = self.parseTransactions(response['deposits'], currency, since, limit)
         transactions = self.array_concat(deposits, withdrawals)
         return self.filterByCurrencySinceLimit(self.sort_by(transactions, 'timestamp'), code, since, limit)
 
@@ -1041,14 +945,20 @@ class poloniex (Exchange):
         response = await self.fetch_transactions_helper(code, since, limit, params)
         for i in range(0, len(response['withdrawals'])):
             response['withdrawals'][i]['type'] = 'withdrawal'
-        withdrawals = self.parseTransactions(response['withdrawals'], code, since, limit)
+        currency = None
+        if code is not None:
+            currency = self.currency(code)
+        withdrawals = self.parseTransactions(response['withdrawals'], currency, since, limit)
         return self.filterByCurrencySinceLimit(withdrawals, code, since, limit)
 
     async def fetch_deposits(self, code=None, since=None, limit=None, params={}):
         response = await self.fetch_transactions_helper(code, since, limit, params)
         for i in range(0, len(response['deposits'])):
             response['deposits'][i]['type'] = 'deposit'
-        deposits = self.parseTransactions(response['deposits'], code, since, limit)
+        currency = None
+        if code is not None:
+            currency = self.currency(code)
+        deposits = self.parseTransactions(response['deposits'], currency, since, limit)
         return self.filterByCurrencySinceLimit(deposits, code, since, limit)
 
     def parse_transaction_status(self, status):
@@ -1108,8 +1018,6 @@ class poloniex (Exchange):
             if type == 'deposit':
                 # according to https://poloniex.com/fees/
                 feeCost = 0  # FIXME: remove hardcoded value that may change any time
-            elif type == 'withdrawal':
-                raise ExchangeError('Withdrawal without fee detectednot ')
         return {
             'info': transaction,
             'id': id,
@@ -1148,8 +1056,7 @@ class poloniex (Exchange):
             }
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
 
-    def handle_errors(self, code, reason, url, method, headers, body):
-        response = None
+    def handle_errors(self, code, reason, url, method, headers, body, response=None):
         try:
             response = json.loads(body)
         except Exception as e:

@@ -169,7 +169,7 @@ class cex (Exchange):
             },
         })
 
-    def fetch_markets(self):
+    def fetch_markets(self, params={}):
         markets = self.publicGetCurrencyLimits()
         result = []
         for p in range(0, len(markets['data']['pairs'])):

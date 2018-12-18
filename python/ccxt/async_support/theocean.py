@@ -158,7 +158,7 @@ class theocean (Exchange):
             'cost': cost,
         }
 
-    async def fetch_markets(self):
+    async def fetch_markets(self, params={}):
         markets = await self.publicGetTokenPairs()
         #
         #     [
@@ -1007,8 +1007,8 @@ class theocean (Exchange):
                 raise NotSupported(self.id + ' encountered an unsupported order fee option: ' + feeOption)
             feeDecimals = self.safe_integer(self.options['decimals'], feeCurrency, 18)
             fee = {
-                'сost': self.fromWei(feeCost, 'ether', feeDecimals),
-                'сurrency': feeCurrency,
+                'cost': self.fromWei(feeCost, 'ether', feeDecimals),
+                'currency': feeCurrency,
             }
         amountPrecision = market['precision']['amount'] if market else 8
         if remaining is not None:
@@ -1187,7 +1187,7 @@ class theocean (Exchange):
                 url += '?' + self.urlencode(query)
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
 
-    def handle_errors(self, httpCode, reason, url, method, headers, body):
+    def handle_errors(self, httpCode, reason, url, method, headers, body, response=None):
         if not isinstance(body, basestring):
             return  # fallback to default error handler
         if len(body) < 2:
