@@ -1076,17 +1076,6 @@ class poloniex (Exchange):
             raise ExchangeError(feedback)  # unknown message
 
     def _websocket_generate_url_stream(self, events, options):
-        # streamList = []
-        # for i in range(0, len(events)):
-        #     element = events[i]
-        #     params = {
-        #         'event': element['event'],
-        #         'symbol': self._websocket_market_id(element['symbol']),
-        #     }
-        #     streamGenerator = self.wsconf['events'][element['event']]['conx-param']['stream']
-        #     streamList.append(self.implode_params(streamGenerator, params))
-        #}
-        # stream = '/'.join(streamList)
         return options['url']
 
     def _websocket_market_id(self, symbol):

@@ -161,12 +161,20 @@ class binance (Exchange):
                             'stream': '{symbol}@depth',
                         },
                     },
-                    'trade': {
+                    'aggtrade': {
                         'conx-tpl': 'default',
                         'conx-param': {
                             'url': '{baseurl}',
                             'id': '{id}',
                             'stream': '{symbol}@aggTrade',
+                        },
+                    },
+                    'trade': {
+                        'conx-tpl': 'default',
+                        'conx-param': {
+                            'url': '{baseurl}',
+                            'id': '{id}',
+                            'stream': '{symbol}@trade',
                         },
                     },
                     'ohlcv': {
@@ -1184,6 +1192,8 @@ class binance (Exchange):
             msgType = parts[1]
             if msgType == 'depth':
                 self._websocket_handle_ob(contextId, resData)
+            elif msgType == 'trade':
+                self._websocket_handle_trade(contextId, resData)
             elif msgType == 'aggTrade':
                 self._websocket_handle_trade(contextId, resData)
             elif msgType.find('kline') >= 0:
@@ -1335,8 +1345,10 @@ class binance (Exchange):
                     event = pair[1].lower()
                     if event == 'depth':
                         event = 'ob'
-                    elif event == 'aggtrade':
+                    elif event == 'trade':
                         event = 'trade'
+                    elif event == 'aggtrade':
+                        event = 'aggtrade'
                     elif event.find('kline') >= 0:
                         event = 'kline'
                     elif event.find('24hrTicker') >= 0:

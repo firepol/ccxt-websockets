@@ -361,6 +361,7 @@ class bitstamp (Exchange):
         orderId = self.safe_string(trade, 'order_id')
         price = self.safe_float(trade, 'price')
         amount = self.safe_float(trade, 'amount')
+        cost = self.safe_float(trade, 'cost')
         id = self.safe_string_2(trade, 'tid', 'id')
         if market is None:
             keys = list(trade.keys())
@@ -378,6 +379,7 @@ class bitstamp (Exchange):
         if market is not None:
             price = self.safe_float(trade, market['symbolId'], price)
             amount = self.safe_float(trade, market['baseId'], amount)
+            cost = self.safe_float(trade, market['quoteId'], cost)
             feeCurrency = market['quote']
             symbol = market['symbol']
         if amount is not None:
@@ -386,10 +388,10 @@ class bitstamp (Exchange):
             else:
                 side = 'buy'
             amount = abs(amount)
-        cost = None
-        if price is not None:
-            if amount is not None:
-                cost = price * amount
+        if cost is None:
+            if price is not None:
+                if amount is not None:
+                    cost = price * amount
         if cost is not None:
             cost = abs(cost)
         return {
