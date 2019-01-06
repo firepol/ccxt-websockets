@@ -1212,20 +1212,29 @@ class binance (Exchange):
             deltas = symbolData['deltas']
             partsLen = len(deltas)
             if partsLen > 50:
-                self.emit('err', ExchangeError(self.id + ': max deltas reached for symbol ' + symbol))
-                self.websocketClose(contextId)
+                if not('failCount' in list(symbolData.keys())):
+                    symbolData['failCount'] = 0
+                symbolData['failCount'] = symbolData['failCount'] + 1
+                if symbolData['failCount'] > 5:
+                    self.emit('err', ExchangeError(self.id + ': max deltas failCount reached for symbol ' + symbol))
+                    self.websocketClose(contextId)
+                else:
+                    # Launch again
+                    del symbolData['ob']
+                    del symbolData['deltas']
+                self._contextSetSymbolData(contextId, 'ob', symbol, symbolData)
             else:
                 symbolData['deltas'].append(data)
-                self._contextSetSymbolData(contextId, 'ob', symbol, symbolData)
-                if not('snaplaunched' in list(data.keys())):
-                    data['snaplaunched'] = True
+                if not('snaplaunched' in list(symbolData.keys())):
+                    symbolData['snaplaunched'] = True
                     self._executeAndCallback(contextId, self._websocketMethodMap('fetchOrderBook'), [symbol], self._websocketMethodMap('_websocketHandleObRestSnapshot'), {
                         'symbol': symbol,
                         'contextId': contextId,
                     })
+                self._contextSetSymbolData(contextId, 'ob', symbol, symbolData)
         else:
             config = self._contextGet(contextId, 'config')
-            symbolData['ob'] = self.mergeOrderBookDelta(symbolData['ob'], data, None, 'b', 'a')
+            symbolData['ob'] = self.mergeOrderBookDelta(symbolData['ob'], data, data['E'], 'b', 'a')
             self.emit('ob', symbol, self._cloneOrderBook(symbolData['ob'], config['ob'][symbol]['limit']))
             self._contextSetSymbolData(contextId, 'ob', symbol, symbolData)
 

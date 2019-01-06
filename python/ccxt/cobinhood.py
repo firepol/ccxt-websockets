@@ -202,6 +202,7 @@ class cobinhood (Exchange):
                     },
                 },
                 'methodmap': {
+                    '_websocketSendHeartbeat': '_websocketSendHeartbeat',
                     '_websocketTimeoutRemoveNonce': '_websocketTimeoutRemoveNonce',
                 },
                 'events': {
@@ -847,6 +848,8 @@ class cobinhood (Exchange):
         symbol = self.find_symbol(id)
         if type == 'error':
             self.emit('err', ExchangeError(self.id + ' error ' + h[3] + ':' + h[4]))
+        elif type == 'pong':
+            self.emit('pong')
         elif channel.find('order-book.') >= 0:
             if type == 'subscribed':
                 self._websocket_handle_subscription(contextId, 'ob', msg, symbol)
@@ -894,6 +897,18 @@ class cobinhood (Exchange):
                 self._websocket_handle_ohlcv(contextId, symbol, msg)
             else:
                 self.emit('err', ExchangeError(self.id + ' invalid ohlcv message :' + type), contextId)
+
+    def _websocket_on_open(self, contextId, params):
+        heartbeatTimer = self._contextGet(contextId, 'heartbeattimer')
+        if heartbeatTimer is not None:
+            self._cancelTimer(heartbeatTimer)
+        heartbeatTimer = self._setTimer(contextId, 60000, self._websocketMethodMap('_websocketSendHeartbeat'), [contextId])
+        self._contextSet(contextId, 'heartbeattimer', heartbeatTimer)
+
+    def _websocket_send_heartbeat(self, contextId):
+        self.websocketSendJson({
+            'action': 'ping',
+        }, contextId)
 
     def _websocket_handle_order_book_snapshot(self, contextId, symbol, msg):
         d = self.safe_value(msg, 'd', {

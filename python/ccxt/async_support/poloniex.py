@@ -1198,7 +1198,7 @@ class poloniex (Exchange):
         # Alternatively, we could apply all cached deltas and keep going.
         if symbolData['obDeltaCacheSize'] > symbolData['obDeltaCacheSizeMax']:
             symbolData['ob'] = self.fetch_order_book(symbol, symbolData['limit'])
-            # delete symbolData['obDeltaCache']
+            # del symbolData['obDeltaCache']
             symbolData['obDeltaCache'] = None
             symbolData['obDeltaCacheSize'] = 0
             self._contextSetSymbolData(contextId, 'ob', symbol, symbolData)
