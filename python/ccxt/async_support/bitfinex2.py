@@ -173,6 +173,7 @@ class bitfinex2 (bitfinex):
                     'default': {
                         'type': 'ws',
                         'baseurl': 'wss://api.bitfinex.com/ws/2',
+                        'wait4readyEvent': 'statusok',
                     },
                 },
                 'methodmap': {
@@ -495,6 +496,8 @@ class bitfinex2 (bitfinex):
                 self._websocket_handle_unsubscription(contextId, msg)
             elif event == 'error':
                 self._websocket_handle_error(contextId, msg)
+            elif event == 'info':
+                self._websocket_handle_info_version(contextId, msg)
         else:
             # channel data
             chanId = msg[0]
@@ -512,6 +515,15 @@ class bitfinex2 (bitfinex):
             if event == 'ob':
                 self._websocket_handle_order_book(contextId, symbol, msg)
 
+    def _websocket_handle_info_version(self, contextId, data):
+        version = self.safe_integer(data, 'version')
+        if version is not None:
+            self.websocketSendJson({
+                'event': 'conf', 
+                'flags': 32768
+            })
+            self.emit('statusok', True)
+
     def _websocket_handle_error(self, contextId, msg):
         channel = self.safe_string(msg, 'channel')
         errorMsg = self.safe_string(msg, 'msg')
@@ -526,14 +538,20 @@ class bitfinex2 (bitfinex):
     def _websocket_handle_order_book(self, contextId, symbol, msg):
         data = msg[1]
         firstElement = data[0]
+        timestamp = None
+        dt = None
+        length = len(msg)
+        if length > 2:
+            timestamp = msg[2]
+            dt = self.iso8601(timestamp)
         symbolData = self._contextGetSymbolData(contextId, 'ob', symbol)
         if isinstance(firstElement, list):
             # snapshot
             symbolData['ob'] = {
                 'bids': [],
                 'asks': [],
-                'timestamp': None,
-                'datetime': None,
+                'timestamp': timestamp,
+                'datetime': dt,
                 'nonce': None,
             }
             for i in range(0, len(data)):
@@ -576,6 +594,8 @@ class bitfinex2 (bitfinex):
             else:
                 # update
                 self.updateBidAsk([price, amount], symbolData['ob'][side], isBid)
+            symbolData['ob']['timestamp'] = timestamp
+            symbolData['ob']['datetime'] = dt
         self.emit('ob', symbol, self._cloneOrderBook(symbolData['ob'], symbolData['limit']))
         self._contextSetSymbolData(contextId, 'ob', symbol, symbolData)
 
