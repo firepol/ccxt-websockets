@@ -21,6 +21,7 @@ from ccxt.base.errors import InsufficientFunds
 from ccxt.base.errors import AddressPending
 from ccxt.base.errors import InvalidOrder
 from ccxt.base.errors import OrderNotFound
+from ccxt.base.errors import NotSupported
 from ccxt.base.errors import DDoSProtection
 from ccxt.base.errors import ExchangeNotAvailable
 from ccxt.base.decimal_to_precision import TRUNCATE
@@ -69,6 +70,7 @@ class bittrex (Exchange):
                     'account': 'https://{hostname}/api',
                     'market': 'https://{hostname}/api',
                     'v2': 'https://{hostname}/api/v2.0/pub',
+                    'socket': 'https://socket.{hostname}/signalr',
                 },
                 'www': 'https://bittrex.com',
                 'doc': [
@@ -122,6 +124,11 @@ class bittrex (Exchange):
                         'openorders',
                         'selllimit',
                         'sellmarket',
+                    ],
+                },
+                'socket': {
+                    'get': [
+                        'negotiate',
                     ],
                 },
             },
@@ -189,6 +196,25 @@ class bittrex (Exchange):
             'commonCurrencies': {
                 'BITS': 'SWIFT',
                 'CPC': 'CapriCoin',
+            },
+            'wsconf': {
+                'conx-tpls': {
+                    'default': {
+                        'type': 'signalr',
+                        'baseurl': 'wss://socket.bittrex.com/signalr/connect?transport=webSockets&clientProtocol=1.5&connectionToken=',
+                        'tokenUrl': 'https://socket.bittrex.com/signalr/negotiate?clientProtocol=1.5&connectionData=[{"name":"c2"}]&_=1524596108843',
+                        'disableCertCheck': True,
+                    },
+                },
+                'events': {
+                    'ob': {
+                        'conx-tpl': 'default',
+                        'conx-param': {
+                            'url': '{baseurl}{ConnectionToken}',
+                            'id': '{id}',
+                        },
+                    },
+                },
             },
         })
 
@@ -858,7 +884,7 @@ class bittrex (Exchange):
         url = self.implode_params(self.urls['api'][api], {
             'hostname': self.hostname,
         }) + '/'
-        if api != 'v2':
+        if (api != 'v2') and(api != 'socket'):
             url += self.version + '/'
         if api == 'public':
             url += api + '/' + method.lower() + path
@@ -866,6 +892,10 @@ class bittrex (Exchange):
                 url += '?' + self.urlencode(params)
         elif api == 'v2':
             url += path
+            if params:
+                url += '?' + self.urlencode(params)
+        elif api == 'socket':
+            url += '/' + path
             if params:
                 url += '?' + self.urlencode(params)
         else:
@@ -884,9 +914,13 @@ class bittrex (Exchange):
             headers = {'apisign': signature}
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
 
-    def handle_errors(self, code, reason, url, method, headers, body, response=None):
+    def handle_errors(self, code, reason, url, method, headers, body, response):
         if body[0] == '{':
             response = json.loads(body)
+            # {"Url":"/signalr","ConnectionToken":"...","ConnectionId":"...","KeepAliveTimeout":20.0,"DisconnectTimeout":30.0,"ConnectionTimeout":110.0,"TryWebSockets":true,"ProtocolVersion":"1.5","TransportConnectTimeout":5.0,"LongPollDelay":0.0}
+            responseUrl = self.safe_value(response, 'Url')
+            if responseUrl is not None:
+                return response
             # {success: False, message: "message"}
             success = self.safe_value(response, 'success')
             if success is None:
@@ -947,3 +981,119 @@ class bittrex (Exchange):
         if (api == 'account') or (api == 'market'):
             self.options['hasAlreadyAuthenticatedSuccessfully'] = True
         return response
+
+    async def _websocket_on_init(self, contextId, websocketConfig):
+        connectionData = [{"name": "c2"}]
+        response = await self.socketGetNegotiate({
+            'clientProtocol': '1.5',
+            'connectionData': self.json(connectionData),
+            '_': self.milliseconds(),
+        })
+        websocketConfig['url'] = self.implode_params(websocketConfig['url'], {
+            'ConnectionToken': self.encode_uri_component(response['ConnectionToken']),
+        })
+        return websocketConfig
+
+    def _websocket_on_message(self, contextId, data):
+        # WebsocketConnection: {"C":"d-30A89C0B-B2bAF,1","S":1,"M":[]}
+        # WebsocketConnection: {"C":"d-30A89C0B-B2bAF,2|Dj,DCF8B","G":"et1LtGEPps9CyZOiEwC3001IWa/rSLKX1sIKLK72TYwa09sSsFAeLZnCBYIzUB85QtVktyet7lOC5k522VZoWFrJ+QDfFvR5yfYxsqxMhOe4yp9J8XyzG3VGxPxW+CsuekQh/w==","M":[]}
+        # WebsocketConnection: {"R":true,"I":"1548327501"}
+        # WebsocketConnection: {"C":"d-30A89C0B-B2bAF,2|Dj,DCF8C","M":[{"H":"C2","M":"uE","A":["Xc6xDgIhEIThd5kaybIsC2yptproYaHG1pe48O6e8YjJTfM3XzEzTjDcpmPb7dsBDmdYpRSIHR6w54x2hwWHKyymKJ6oJqqaHS4w8tTdj9Ag5KvEkAPzIBpKZspD8l/SulUm0ZKryFZy3cogqlqE+sthWm4ueX/TPw=="]}]}
+        # WebsocketConnection: {"C":"d-30A89C0B-B2bAF,2|Dj,DCF8D","M":[{"H":"C2","M":"uE","A":["Lcw7DoAgEIThu0y9kiUriFuqrSYqFmpsvYTh7uLjb6b5Mhd6KJa5i0UTWxAGaM3OshA26H4hrlBLmKDiRIwXseJDRRihbDjRR/glIZjKhZJzLyhdJn/pIMz5Ms/5TLoB"]}]}
+        # WebsocketConnection: {"C":"d-30A89C0B-B2bAF,2|Dj,DCF8E","M":[{"H":"C2","M":"uE","A":["bc4xDsIwDIXhu7w5WHYSN3ZGYAUJWgZAXblE1bu3QlUFBW+WPv32gBMqbu2x2+27AwLOqM4qnAMeqM8B3R1VAq6oSZNTEebYGAdcUJl4DBvC5DlJkRi3hBcSjUTVXPJaKcrsJX1LbYiXebu4rmMf0P58p0wpmbmJ/T/dZHdy/0jORHRNvuZkP04="]}]}
+        # WebsocketConnection: {"I":"1548328520","E":"There was an error invoking Hub method 'c2.SubscribeToExchangeDeltas'."}
+        # better to create SignalR Class to do all of self?
+        msg = json.loads(data)
+        opIndex = self.safe_string(msg, 'I')
+        if opIndex is not None:
+            # response to a request
+            result = self.safe_value(msg, 'R')
+            error = self.safe_value(msg, 'E')
+            if opIndex is not None:
+                if opIndex.find('ob-sub_') == 0:
+                    rest = opIndex.replace('ob-sub_', '')
+                    parts = rest.split('_')
+                    nonce = parts[0]
+                    id = rest.replace(nonce + '_', '')
+                    self.emit(nonce, result, ExchangeError(error))
+                    if result is True:
+                        self.websocketSendJson({
+                            'H': 'c2',
+                            'M': 'QueryExchangeState',
+                            'A': [id],
+                            'I': 'snapshot_' + rest,
+                        })
+                elif opIndex.find('snapshot_') == 0:
+                    data = self.inflateRaw(result, 'base64')
+                    parsedData = json.loads(data)
+                    self._websocket_handle_order_book_snapshot(contextId, parsedData)
+        else:
+            # TODO: check sequence number
+            messages = self.safe_value(msg, 'M')
+            if messages is not None:
+                for i in range(0, len(messages)):
+                    hub = self.safe_string(messages[i], 'H')
+                    method = self.safe_string(messages[i], 'M')
+                    methodArgs = self.safe_value(messages[i], 'A')
+                    if hub == 'C2':
+                        if method == 'uE':
+                            data = self.inflateRaw(methodArgs[0], 'base64')
+                            parsedData = json.loads(data)
+                            self._websocket_handle_order_book_delta(contextId, parsedData)
+
+    def _websocket_handle_order_book_snapshot(self, contextId, data):
+        id = self.safe_string(data, 'M')
+        symbol = self.find_symbol(id)
+        ob = self.parse_order_book(data, None, 'Z', 'S', 'R', 'Q')
+        symbolData = self._contextGetSymbolData(contextId, 'ob', symbol)
+        symbolData['ob'] = ob
+        self.emit('ob', symbol, self._cloneOrderBook(symbolData['ob'], symbolData['limit']))
+        self._contextSetSymbolData(contextId, 'ob', symbol, symbolData)
+
+    def _websocket_handle_order_book_delta(self, contextId, data):
+        # {"M":"USDT-BTC","N":912014,"Z":[{"TY":0,"R":3504.97634920,"Q":0.26480207},{"TY":1,"R":3504.97634919,"Q":0.0}],"S":[{"TY":0,"R":3579.37236706,"Q":0.21455380},{"TY":1,"R":6429.20850000,"Q":0.0}],"f":[]}
+        id = self.safe_string(data, 'M')
+        symbol = self.find_symbol(id)
+        symbolData = self._contextGetSymbolData(contextId, 'ob', symbol)
+        if 'ob' in symbolData:
+            # snapshot previously received, else raise it
+            bids = self.safe_value(data, 'Z')
+            asks = self.safe_value(data, 'S')
+            if bids is not None:
+                for i in range(0, len(bids)):
+                    elemType = self.safe_integer(bids[i], 'TY')
+                    price = self.safe_float(bids[i], 'R')
+                    amount = self.safe_float(bids[i], 'Q')
+                    # 0 = ADD, 1 = REMOVE, 2 = UPDATE
+                    if elemType == 1:
+                        self.updateBidAsk([price, 0], symbolData['ob']['bids'], True)
+                    else:
+                        self.updateBidAsk([price, amount], symbolData['ob']['bids'], True)
+            if asks is not None:
+                for i in range(0, len(asks)):
+                    elemType = self.safe_integer(asks[i], 'TY')
+                    price = self.safe_float(asks[i], 'R')
+                    amount = self.safe_float(asks[i], 'Q')
+                    # 0 = ADD, 1 = REMOVE, 2 = UPDATE
+                    if elemType == 1:
+                        self.updateBidAsk([price, 0], symbolData['ob']['asks'], False)
+                    else:
+                        self.updateBidAsk([price, amount], symbolData['ob']['asks'], False)
+            self.emit('ob', symbol, self._cloneOrderBook(symbolData['ob'], symbolData['limit']))
+            self._contextSetSymbolData(contextId, 'ob', symbol, symbolData)
+
+    def _websocket_subscribe(self, contextId, event, symbol, nonce, params={}):
+        if event != 'ob':
+            raise NotSupported('subscribe ' + event + '(' + symbol + ') not supported for exchange ' + self.id)
+        symbolData = self._contextGetSymbolData(contextId, event, symbol)
+        symbolData['limit'] = self.safe_integer(params, 'limit', None)
+        nonceStr = str(nonce)
+        self._contextSetSymbolData(contextId, event, symbol, symbolData)
+        # send request
+        id = self.market_id(symbol)
+        self.websocketSendJson({
+            'H': 'c2',
+            'M': 'SubscribeToExchangeDeltas',
+            'A': [id],
+            'I': 'ob-sub_' + nonceStr + '_' + id,
+        })

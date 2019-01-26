@@ -1,6 +1,6 @@
 {
   "name": "ccxt",
-  "version": "1.18.46",
+  "version": "1.18.152",
   "description": "A JavaScript / Python / PHP cryptocurrency trading library with support for 100+ exchanges",
   "main": "./ccxt.js",
   "unpkg": "build/ccxt.browser.js",
@@ -28,6 +28,7 @@
     "vss": "node vss",
     "qa": "npm run check-python-syntax && npm run check-php-syntax",
     "lint": "eslint",
+    "check-syntax": "npm run transpile && npm run check-js-syntax && npm run check-python-syntax && npm run check-php-syntax",
     "check-js-syntax": "eslint 'js/*.js'",
     "check-python-syntax": "cd python && tox -e qa && cd ..",
     "check-php-syntax": "php -f php/test/syntax.php",
@@ -44,6 +45,7 @@
   },
   "types": "./ccxt.d.ts",
   "dependencies": {
+    "bufferutil": "~3.0.0",
     "cloudscraper": "1.4.1",
     "cross-env": "^5.1.4",
     "cross-spawn": "^6.0.5",
@@ -53,6 +55,7 @@
     "opencollective": "1.0.3",
     "pako": "^1.0.6",
     "qs": "6.5.1",
+    "utf-8-validate": "~4.0.0",
     "ws": "^5.1.1"
   },
   "devDependencies": {

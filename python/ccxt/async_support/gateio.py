@@ -283,16 +283,15 @@ class gateio (Exchange):
             'info': ticker,
         }
 
-    def handle_errors(self, code, reason, url, method, headers, body, response=None):
+    def handle_errors(self, code, reason, url, method, headers, body, response):
         if len(body) <= 0:
             return
         if body[0] != '{':
             return
-        jsonbodyParsed = json.loads(body)
-        resultString = self.safe_string(jsonbodyParsed, 'result', '')
+        resultString = self.safe_string(response, 'result', '')
         if resultString != 'false':
             return
-        errorCode = self.safe_string(jsonbodyParsed, 'code')
+        errorCode = self.safe_string(response, 'code')
         if errorCode is not None:
             exceptions = self.exceptions
             errorCodeNames = self.errorCodeNames
@@ -301,7 +300,7 @@ class gateio (Exchange):
                 if errorCode in errorCodeNames:
                     message = errorCodeNames[errorCode]
                 else:
-                    message = self.safe_string(jsonbodyParsed, 'message', '(unknown)')
+                    message = self.safe_string(response, 'message', '(unknown)')
                 raise exceptions[errorCode](message)
 
     async def fetch_tickers(self, symbols=None, params={}):

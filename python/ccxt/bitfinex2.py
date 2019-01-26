@@ -106,6 +106,7 @@ class bitfinex2 (bitfinex):
                         'auth/r/orders/{symbol}/new',
                         'auth/r/orders/{symbol}/hist',
                         'auth/r/order/{symbol}:{id}/trades',
+                        'auth/r/trades/hist',
                         'auth/r/trades/{symbol}/hist',
                         'auth/r/positions',
                         'auth/r/funding/offers/{symbol}',
@@ -117,6 +118,7 @@ class bitfinex2 (bitfinex):
                         'auth/r/funding/trades/{symbol}/hist',
                         'auth/r/info/margin/{key}',
                         'auth/r/info/funding/{key}',
+                        'auth/r/movements/hist',
                         'auth/r/movements/{currency}/hist',
                         'auth/r/stats/perf:{timeframe}/hist',
                         'auth/r/alerts',
@@ -519,8 +521,8 @@ class bitfinex2 (bitfinex):
         version = self.safe_integer(data, 'version')
         if version is not None:
             self.websocketSendJson({
-                'event': 'conf', 
-                'flags': 32768
+                'event': 'conf',
+                'flags': 32768,
             })
             self.emit('statusok', True)
 

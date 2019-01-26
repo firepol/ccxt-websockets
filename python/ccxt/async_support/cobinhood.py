@@ -811,12 +811,11 @@ class cobinhood (Exchange):
             body = self.json(query)
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
 
-    def handle_errors(self, code, reason, url, method, headers, body, response=None):
+    def handle_errors(self, code, reason, url, method, headers, body, response):
         if code < 400 or code >= 600:
             return
         if body[0] != '{':
             raise ExchangeError(self.id + ' ' + body)
-        response = json.loads(body)
         feedback = self.id + ' ' + self.json(response)
         errorCode = self.safe_value(response['error'], 'error_code')
         if method == 'DELETE' or method == 'GET':
