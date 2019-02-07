@@ -951,11 +951,13 @@ class huobipro (Exchange):
 
     def _websocket_dispatch(self, contextId, data):
         # console.log('received', data.ch, 'data.ts', data.ts, 'crawler.ts', moment().format('x'))
-        vals = data.ch.split('.')
+        ch = self.safe_string(data, 'ch')
+        vals = ch.split('.')
         rawsymbol = vals[1]
         channel = vals[2]
         # :symbol
-        symbol = self.marketsById[rawsymbol].symbol
+        # symbol = self.marketsById[rawsymbol].symbol
+        symbol = self.find_symbol(rawsymbol)
         # channel = data.ch.split('.')[2]
         if channel == 'depth':
             # :ob emit
@@ -975,17 +977,17 @@ class huobipro (Exchange):
     def _websocket_subscribe(self, contextId, event, symbol, nonce, params={}):
         if event != 'ob':
             raise NotSupported('subscribe ' + event + '(' + symbol + ') not supported for exchange ' + self.id)
-        params['depth'] = params['depth'] or '2'
         data = self._contextGetSymbolData(contextId, event, symbol)
         # depth from 0 to 5
         # see https://github.com/huobiapi/API_Docs/wiki/WS_api_reference#%E8%AE%A2%E9%98%85-market-depth-%E6%95%B0%E6%8D%AE-marketsymboldepthtype
-        data['depth'] = params['depth']
+        depth = self.safe_integer(params, 'depth', 2)
+        data['depth'] = depth
         # it is not limit
-        data['limit'] = params['limit'] or 100
+        data['limit'] = self.safe_integer(params, 'limit', 100)
         self._contextSetSymbolData(contextId, event, symbol, data)
         rawsymbol = self.market_id(symbol)
         sendJson = {
-            'sub': 'market.' + rawsymbol + '.depth.step' + params['depth'],
+            'sub': 'market.' + rawsymbol + '.depth.step' + str(depth),
             'id': rawsymbol,
         }
         self.websocketSendJson(sendJson)
@@ -995,10 +997,10 @@ class huobipro (Exchange):
     def _websocket_unsubscribe(self, contextId, event, symbol, nonce, params={}):
         if event != 'ob':
             raise NotSupported('unsubscribe ' + event + '(' + symbol + ') not supported for exchange ' + self.id)
-        params['depth'] = params['depth'] or '2'
+        depth = self.safe_integer(params, 'depth', 2)
         rawsymbol = self.market_id(symbol)
         sendJson = {
-            'unsub': 'market.' + rawsymbol + '.depth.step' + params['depth'],
+            'unsub': 'market.' + rawsymbol + '.depth.step' + str(depth),
             'id': rawsymbol,
         }
         self.websocketSendJson(sendJson)

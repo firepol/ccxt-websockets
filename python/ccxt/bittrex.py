@@ -983,7 +983,7 @@ class bittrex (Exchange):
         return response
 
     def _websocket_on_init(self, contextId, websocketConfig):
-        connectionData = [{"name": "c2"}]
+        connectionData = [{'name': 'c2'}]
         response = self.socketGetNegotiate({
             'clientProtocol': '1.5',
             'connectionData': self.json(connectionData),
