@@ -1080,6 +1080,10 @@ class poloniex (Exchange):
     def _websocket_market_id(self, symbol):
         return self.market_id(symbol).lower()
 
+    def _websocket_on_open(self, contextId, websocketOptions):
+        symbolIds = {}
+        self._contextSet(contextId, 'symbolids', symbolIds)
+
     def _websocket_on_message(self, contextId, data):
         msg = json.loads(data)
         channelId = msg[0]
@@ -1096,21 +1100,23 @@ class poloniex (Exchange):
             print(self.id + '._websocketOnMessage() heartbeat ' + data)
         else:
             # if channelId is not one of the above, check if it is a marketId
-            symbol = str(self.find_symbol(channelId))
-            if symbol == str(channelId):
-                # Some error occured
-                self.emit('err', ExchangeError(self.id + '._websocketOnMessage() failed to get symbol for channelId: ' + channelId))
-                self.websocketClose(contextId)
+            symbolsIds = self._contextGet(contextId, 'symbolids')
+            channelIdStr = str(channelId)
+            if channelIdStr in symbolsIds:
+                symbol = symbolsIds[channelIdStr]
+                self._websocket_handle_ob(contextId, symbol, msg)
             else:
-                self._websocket_handle_ob(contextId, msg)
+                # Some error occured
+                self.emit('err', ExchangeError(self.id + '._websocketOnMessage() failed to get symbol for channelId: ' + channelIdStr))
+                self.websocketClose(contextId)
 
-    def _websocket_handle_ob(self, contextId, data):
+    def _websocket_handle_ob(self, contextId, symbol, data):
         # Poloniex calls self Price Aggregated Book
         channelId = data[0]
         sequenceNumber = data[1]
         if len(data) > 2:
             orderbook = data[2]
-            symbol = str(self.find_symbol(channelId))
+            # symbol = str(self.find_symbol(channelId))
             symbolData = self._contextGetSymbolData(contextId, 'ob', symbol)
             # Check if self is the first response which contains full current orderbook
             if orderbook[0][0] == 'i':
@@ -1238,12 +1244,15 @@ class poloniex (Exchange):
         symbolData['obDeltaCacheSize'] = 0
         symbolData['obDeltaCacheSizeMax'] = self.safe_integer(params, 'obDeltaCacheSizeMax', 10)
         self._contextSetSymbolData(contextId, 'ob', symbol, symbolData)
-        #
-        market = self.market_id(symbol)
-        #
+        # get symbol id2
+        # market = self.market_id(symbol)
+        market = self.find_market(symbol)
+        symbolsIds = self._contextGet(contextId, 'symbolids')
+        symbolsIds[market['id2']] = symbol
+        self._contextSet(contextId, 'symbolids', symbolsIds)
         payload = {
             'command': 'subscribe',
-            'channel': market,
+            'channel': market['id'],
         }
         nonceStr = str(nonce)
         self.emit(nonceStr, True)
