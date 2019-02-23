@@ -64,6 +64,7 @@ class Exchange(BaseExchange, EventEmitter):
         # async connection initialization
         self.wsconf = {}
         self.websocketContexts = {}
+        self.websocketDelayedConnections = {}
         self.wsproxy = None
         self.cafile = config.get('cafile', certifi.where())
         self.open()
@@ -397,9 +398,11 @@ class Exchange(BaseExchange, EventEmitter):
             for symbol in events[key]:
                 symbol_context = events[key][symbol]
                 if ((symbol_context['subscribed']) or (symbol_context['subscribing'])):
+                    params = symbol_context['params'] if ('params' in symbol_context) else {}
                     ret.append({
                         'event': key,
                         'symbol': symbol,
+                        'params': params,
                     })
         return ret
 
@@ -481,8 +484,9 @@ class Exchange(BaseExchange, EventEmitter):
     def _contextSetSymbolData(self, conxid, event, symbol, data):
         self.websocketContexts[conxid]['events'][event][symbol]['data'] = data
 
-    def _contextSetSubscribed(self, conxid, event, symbol, subscribed):
+    def _contextSetSubscribed(self, conxid, event, symbol, subscribed, params={}):
         self.websocketContexts[conxid]['events'][event][symbol]['subscribed'] = subscribed
+        self.websocketContexts[conxid]['events'][event][symbol]['params'] = params
 
     def _contextIsSubscribed(self, conxid, event, symbol):
         return (event in self.websocketContexts[conxid]['events']) and \
@@ -609,7 +613,7 @@ class Exchange(BaseExchange, EventEmitter):
         else:
             raise NotSupported("invalid websocket connection: " + config['type'] + " for exchange " + self.id)
 
-    async def _websocket_ensure_conx_active(self, event, symbol, subscribe, subscription_params={}):
+    async def _websocket_ensure_conx_active(self, event, symbol, subscribe, subscription_params={}, delayed=False):
         await self.load_markets()
         # self.load_markets()
         ret = self._websocketGetConxid4Event(event, symbol)
@@ -629,8 +633,10 @@ class Exchange(BaseExchange, EventEmitter):
                 conx = self._contextGetConnection(conxid)
                 if (conx is not None):
                     conx.close()
-                if (action['reset-context'] == 'onreconnect'):
-                    self._websocket_reset_context(conxid, conxtpl)
+                if not delayed:
+                    if (action['reset-context'] == 'onreconnect'):
+                        # self._websocket_reset_context(conxid, conxtpl)
+                        self._contextResetSymbol(conxid, event, symbol)
                 self._contextSetConnectionInfo(conxid, await self._websocket_initialize(conx_config, conxid))
             elif (action['action'] == 'connect'):
                 conx = self._contextGetConnection(conxid)
@@ -647,19 +653,35 @@ class Exchange(BaseExchange, EventEmitter):
                 if (conx is not None):
                     conx.close()
                     self._websocket_reset_context(conxid, conxtpl)
+                if delayed:
+                    # if not subscription in conxid remove from delayed
+                    if conxid in list(self.websocketDelayedConnections.keys()):
+                        del self.websocketDelayedConnections[conxid]
                 return conxid
 
-            # if (symbol not in self.asyncContext['ob']):
-            #     self.asyncContext['ob'][symbol] = {
-            #         'subscribed': False,
-            #         'subscribing': False,
-            #         'data': {},
-            #         'conxid': conx_config['id'],
-            #     }
-            await self.websocket_connect(conxid)
+            if delayed:
+                if conxid not in list(self.websocketDelayedConnections.keys()):
+                    self.websocketDelayedConnections[conxid] = {
+                        'conxtpl': conxtpl,
+                        'reset': False,  # action['action'] != 'connect'
+                    }
+            else:
+                await self.websocket_connect(conxid)
+
         return conxid
 
+    async def _websocket_connect_delayed(self):
+        try:
+            for conxid in list(self.websocketDelayedConnections.keys()):
+                if self.websocketDelayedConnections[conxid]['reset']:
+                    self._websocket_reset_context(conxid, self.websocketDelayedConnections[conxid]['conxtpl'])
+                await self.websocket_connect(conxid)
+        finally:
+            self.websocketDelayedConnections = {}
+
     async def websocket_connect(self, conxid='default'):
+        print("connecting conxid:" + conxid)
+        sys.stdout.flush()
         websocket_conx_info = self._contextGetConnectionInfo(conxid)
         conx_tpl = self._contextGetConxTpl(conxid)
         websocket_connection = websocket_conx_info['conx']
@@ -691,6 +713,24 @@ class Exchange(BaseExchange, EventEmitter):
     def websocketClose(self, conxid='default'):
         websocket_conx_info = self._contextGetConnectionInfo(conxid)
         websocket_conx_info['conx'].close()
+
+    def websocketCloseAll(self):
+        for c in self.websocketContexts:
+            self.websocketClose(c)
+
+    def websocketCleanContext(self, conxid=None):
+        if conxid is None:
+            for conxid in self.websocketContexts:
+                self._websocket_reset_context(conxid)
+        else:
+            self._websocket_reset_context(conxid)
+
+    async def websocketRecoverConxid(self, conxid='default', eventSymbols=None):
+        if eventSymbols is None:
+            eventSymbols = self._websocketContextGetSubscribedEventSymbols(conxid)
+        self.websocketClose(conxid)
+        self._websocket_reset_context(conxid)
+        await self.websocket_subscribe_all(eventSymbols)
 
     def websocketSend(self, data, conxid='default'):
         websocket_conx_info = self._contextGetConnectionInfo(conxid)
@@ -739,7 +779,7 @@ class Exchange(BaseExchange, EventEmitter):
         def websocket_connection_error(error):
             websocket_connection_info['auth'] = False
             self._websocket_on_error(conxid)
-            self._websocket_reset_context(conxid)
+            # self._websocket_reset_context(conxid)
             self.emit('err', NetworkError(error), conxid)
 
         @conx.on('message')
@@ -756,7 +796,7 @@ class Exchange(BaseExchange, EventEmitter):
         def websocket_connection_close():
             websocket_connection_info['auth'] = False
             self._websocket_on_close(conxid)
-            self._websocket_reset_context(conxid)
+            # self._websocket_reset_context(conxid)
             self.emit('close', conxid)
 
         return websocket_connection_info
@@ -822,49 +862,92 @@ class Exchange(BaseExchange, EventEmitter):
         return await future
 
     async def websocket_subscribe(self, event, symbol, params={}):
-        if not self._websocketValidEvent(event):
-            raise ExchangeError('Not valid event ' + event + ' for exchange ' + self.id)
-        conxid = await self._websocket_ensure_conx_active(event, symbol, True, params)
-        oid = self.nonce()  # str(self.nonce()) + '-' + symbol + '-ob-subscribe'
-        future = asyncio.Future()
-        oidstr = str(oid)
+        await self.websocket_subscribe_all([{
+            'event': event,
+            'symbol': symbol,
+            'params': params
+        }])
 
-        @self.once(oidstr)
-        def wait4obsubscribe(success, ex=None):
-            if success:
-                self._contextSetSubscribed(conxid, event, symbol, True)
-                self._contextSetSubscribing(conxid, event, symbol, False)
-                future.done() or future.set_result(conxid)
-            else:
-                self._contextSetSubscribed(conxid, event, symbol, False)
-                self._contextSetSubscribing(conxid, event, symbol, False)
-                ex = ex if ex is not None else ExchangeError('error subscribing to ' + event + '(' + symbol + ') in ' + self.id)
-                future.done() or future.set_exception(ex)
-        self._contextSetSubscribing(conxid, event, symbol, True)
-        self.timeout_future(future, 'websocket_subscribe')
-        self._websocket_subscribe(conxid, event, symbol, oid, params)
-        await future
+    async def websocket_subscribe_all(self, eventSymbols):
+        # check all
+        for eventSymbol in eventSymbols:
+            if not self._websocketValidEvent(eventSymbol['event']):
+                raise ExchangeError('Not valid event ' + eventSymbol['event'] + ' for exchange ' + self.id)
+        conxIds = []
+        # prepare all conxid
+        for eventSymbol in eventSymbols:
+            event = eventSymbol['event']
+            symbol = eventSymbol['symbol']
+            params = eventSymbol['params']
+            conxid = await self._websocket_ensure_conx_active(event, symbol, True, params, True)
+            conxIds.append(conxid)
+            self._contextSetSubscribing(conxid, event, symbol, True)
+        # connect all delayed
+        await self._websocket_connect_delayed()
+        for i in range(0, len(eventSymbols)):
+            conxid = conxIds[i]
+            event = eventSymbols[i]['event']
+            symbol = eventSymbols[i]['symbol']
+            params = eventSymbols[i]['params']
+            oid = self.nonce()  # str(self.nonce()) + '-' + symbol + '-ob-subscribe'
+            future = asyncio.Future()
+            oidstr = str(oid)
+
+            @self.once(oidstr)
+            def wait4obsubscribe(success, ex=None):
+                if success:
+                    self._contextSetSubscribed(conxid, event, symbol, True, params)
+                    self._contextSetSubscribing(conxid, event, symbol, False)
+                    future.done() or future.set_result(conxid)
+                else:
+                    self._contextSetSubscribed(conxid, event, symbol, False)
+                    self._contextSetSubscribing(conxid, event, symbol, False)
+                    ex = ex if ex is not None else ExchangeError('error subscribing to ' + event + '(' + symbol + ') in ' + self.id)
+                    future.done() or future.set_exception(ex)
+            self.timeout_future(future, 'websocket_subscribe')
+            self._websocket_subscribe(conxid, event, symbol, oid, params)
+            await future
 
     async def websocket_unsubscribe(self, event, symbol, params={}):
-        if not self._websocketValidEvent(event):
-            raise ExchangeError('Not valid event ' + event + ' for exchange ' + self.id)
-        conxid = await self._websocket_ensure_conx_active(event, symbol, False)
-        oid = self.nonce()  # str(self.nonce()) + '-' + symbol + '-ob-subscribe'
-        future = asyncio.Future()
-        oidstr = str(oid)
+        await self.websocket_unsubscribe_all([{
+            'event': event,
+            'symbol': symbol,
+            'params': params
+        }])
 
-        @self.once(oidstr)
-        def wait4obunsubscribe(success, ex=None):
-            if success:
-                self._contextSetSubscribed(conxid, event, symbol, False)
-                self._contextSetSubscribing(conxid, event, symbol, False)
-                future.done() or future.set_result(True)
-            else:
-                ex = ex if ex is not None else ExchangeError('error unsubscribing to ' + event + '(' + symbol + ') in ' + self.id)
-                future.done() or future.set_exception(ex)
-        self.timeout_future(future, 'websocket_unsubscribe')
-        self._websocket_unsubscribe(conxid, event, symbol, oid, params)
-        await future
+    async def websocket_unsubscribe_all(self, eventSymbols):
+        # check all
+        for eventSymbol in eventSymbols:
+            if not self._websocketValidEvent(eventSymbol['event']):
+                raise ExchangeError('Not valid event ' + eventSymbol['event'] + ' for exchange ' + self.id)
+
+        try:
+            for eventSymbol in eventSymbols:
+                event = eventSymbol['event']
+                symbol = eventSymbol['symbol']
+                params = eventSymbol['params']
+                conxid = await self._websocket_ensure_conx_active(event, symbol, False, params, True)
+                # ret = self._websocketGetConxid4Event(event, symbol)
+                # conxid = ret['conxid']
+                oid = self.nonce()  # str(self.nonce()) + '-' + symbol + '-ob-subscribe'
+                future = asyncio.Future()
+                oidstr = str(oid)
+
+                @self.once(oidstr)
+                def wait4obunsubscribe(success, ex=None):
+                    if success:
+                        self._contextSetSubscribed(conxid, event, symbol, False)
+                        self._contextSetSubscribing(conxid, event, symbol, False)
+                        future.done() or future.set_result(True)
+                    else:
+                        ex = ex if ex is not None else ExchangeError('error unsubscribing to ' + event + '(' + symbol + ') in ' + self.id)
+                        future.done() or future.set_exception(ex)
+                self.timeout_future(future, 'websocket_unsubscribe')
+                self._websocket_unsubscribe(conxid, event, symbol, oid, params)
+                await future
+
+        finally:
+            await self._websocket_connect_delayed()
 
     async def _websocket_on_init(self, contextId, websocketConexConfig):
         return websocketConexConfig
@@ -954,7 +1037,7 @@ class Exchange(BaseExchange, EventEmitter):
 
     def gunzip(self, data):
         # return data.decode('zlib_codec').decode('utf8')
-        return zlib.decompress(data, 16+zlib.MAX_WBITS)
+        return zlib.decompress(data, 16 + zlib.MAX_WBITS)
         # return "{}"
         # return gzip.GzipFile(fileobj=StringIO(data)).read()
         # in_ = io.BytesIO()
@@ -964,7 +1047,7 @@ class Exchange(BaseExchange, EventEmitter):
         #    gunzipped_bytes_obj = fo.read()
         # return gunzipped_bytes_obj.decode()
 
-    def inflateRaw(self, data, informat = None):
+    def inflateRaw(self, data, informat=None):
         if informat == 'base64':
             data = base64.b64decode(data, validate=True)
         try:

@@ -529,13 +529,16 @@ class gemini (Exchange):
                 param = params[i]
                 parts = param.split('=')
                 partsLen = len(parts)
-                if partsLen > 1:
-                    event = None
-                    if parts[0] == 'bids':
-                        event = 'ob'
-                    if (event is not None) and(parts[1] == 'true'):
-                        self._contextSetSubscribed(contextId, event, symbol, True)
-                        self._contextSetSubscribing(contextId, event, symbol, False)
+                # if partsLen > 1:
+                #     event = None
+                #     if parts[0] == 'bids':
+                #         event = 'ob'
+                #     }
+                #     if (event is not None) and(parts[1] == 'true'):
+                #         self._contextSetSubscribed(contextId, event, symbol, True)
+                #         self._contextSetSubscribing(contextId, event, symbol, False)
+                #     }
+                #  }
 
     def _websocket_generate_url_stream(self, events, options, params={}):
         # check all events has the same symbol and build parameter list

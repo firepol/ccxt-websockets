@@ -1240,7 +1240,10 @@ class binance (Exchange):
         else:
             config = self._contextGet(contextId, 'config')
             symbolData['ob'] = self.mergeOrderBookDelta(symbolData['ob'], data, data['E'], 'b', 'a')
-            self.emit('ob', symbol, self._cloneOrderBook(symbolData['ob'], config['ob'][symbol]['limit']))
+            if config is not None:
+                self.emit('ob', symbol, self._cloneOrderBook(symbolData['ob'], config['ob'][symbol]['limit']))
+            else:
+                self.emit('ob', symbol, self._cloneOrderBook(symbolData['ob']))
             self._contextSetSymbolData(contextId, 'ob', symbol, symbolData)
 
     def _websocket_handle_trade(self, contextId, data):
@@ -1316,7 +1319,10 @@ class binance (Exchange):
                 self.mergeOrderBookDelta(response, delta, None, 'b', 'a')
             data['ob'] = response
             data['deltas'] = []
-            self.emit('ob', symbol, self._cloneOrderBook(response, config['ob'][symbol]['limit']))
+            if config is not None:
+                self.emit('ob', symbol, self._cloneOrderBook(response, config['ob'][symbol]['limit']))
+            else:
+                self.emit('ob', symbol, self._cloneOrderBook(response))
             self._contextSetSymbolData(contextId, 'ob', symbol, data)
 
     def _websocket_subscribe(self, contextId, event, symbol, nonce, params={}):
@@ -1355,7 +1361,7 @@ class binance (Exchange):
                 pair = stream.split('@')
                 partsLen = len(pair)
                 if partsLen == 2:
-                    symbol = self.find_symbol(pair[0].upper())
+                    # symbol = self.find_symbol(pair[0].upper())
                     event = pair[1].lower()
                     if event == 'depth':
                         event = 'ob'
@@ -1367,8 +1373,8 @@ class binance (Exchange):
                         event = 'kline'
                     elif event.find('24hrTicker') >= 0:
                         event = 'ticker'
-                    self._contextSetSubscribed(contextId, event, symbol, True)
-                    self._contextSetSubscribing(contextId, event, symbol, False)
+                    # self._contextSetSubscribed(contextId, event, symbol, True)
+                    # self._contextSetSubscribing(contextId, event, symbol, False)
 
     def _websocket_generate_url_stream(self, events, options, params={}):
         streamList = []

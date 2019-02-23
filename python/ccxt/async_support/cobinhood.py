@@ -12,6 +12,7 @@ from ccxt.base.errors import InvalidAddress
 from ccxt.base.errors import InvalidOrder
 from ccxt.base.errors import NotSupported
 from ccxt.base.errors import InvalidNonce
+from ccxt.base.errors import RequestTimeout
 
 
 class cobinhood (Exchange):
@@ -204,6 +205,7 @@ class cobinhood (Exchange):
                 'methodmap': {
                     '_websocketSendHeartbeat': '_websocketSendHeartbeat',
                     '_websocketTimeoutRemoveNonce': '_websocketTimeoutRemoveNonce',
+                    '_websocketPongTimeout': '_websocketPongTimeout',
                 },
                 'events': {
                     'ob': {
@@ -848,6 +850,8 @@ class cobinhood (Exchange):
         if type == 'error':
             self.emit('err', ExchangeError(self.id + ' error ' + h[3] + ':' + h[4]))
         elif type == 'pong':
+            pongTimeout = self._contextGet(contextId, 'pongtimeout')
+            self._cancelTimeout(pongTimeout)
             self.emit('pong')
         elif channel.find('order-book.') >= 0:
             if type == 'subscribed':
@@ -904,7 +908,18 @@ class cobinhood (Exchange):
         heartbeatTimer = self._setTimer(contextId, 60000, self._websocketMethodMap('_websocketSendHeartbeat'), [contextId])
         self._contextSet(contextId, 'heartbeattimer', heartbeatTimer)
 
+    def _websocket_on_close(self, contextId):
+        heartbeatTimer = self._contextGet(contextId, 'heartbeattimer')
+        if heartbeatTimer is not None:
+            self._cancelTimer(heartbeatTimer)
+
+    def _websocket_pong_timeout(self, contextId):
+        ex = RequestTimeout(self.id + ' does not received pong message after 30 seconds')
+        self.emit('err', ex, contextId)
+
     def _websocket_send_heartbeat(self, contextId):
+        pongTimeout = self._setTimeout(contextId, 30000, self._websocketMethodMap('_websocketPongTimeout'), [contextId])
+        self._contextSet(contextId, 'pongtimeout', pongTimeout)
         self.websocketSendJson({
             'action': 'ping',
         }, contextId)

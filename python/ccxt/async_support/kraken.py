@@ -239,7 +239,7 @@ class kraken (Exchange):
                     'default': {
                         'type': 'ws',
                         'baseurl': 'wss://ws.kraken.com',
-                        'sandboxurl' : 'wss://ws-sandbox.kraken.com',
+                        'sandboxurl': 'wss://ws-sandbox.kraken.com',
                     },
                 },
                 'methodmap': {

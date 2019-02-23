@@ -1112,7 +1112,7 @@ class poloniex (Exchange):
 
     def _websocket_handle_ob(self, contextId, symbol, data):
         # Poloniex calls self Price Aggregated Book
-        channelId = data[0]
+        # channelId = data[0]
         sequenceNumber = data[1]
         if len(data) > 2:
             orderbook = data[2]
