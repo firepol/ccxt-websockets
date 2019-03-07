@@ -189,6 +189,13 @@ class bitfinex2 (bitfinex):
                             'id': '{id}',
                         },
                     },
+                    'trade': {
+                        'conx-tpl': 'default',
+                        'conx-param': {
+                            'url': '{baseurl}',
+                            'id': '{id}',
+                        },
+                    },
                 },
             },
         })
@@ -494,6 +501,8 @@ class bitfinex2 (bitfinex):
                 channel = self.safe_string(msg, 'channel')
                 if channel == 'book':
                     self._websocket_handle_subscription(contextId, 'ob', msg)
+                elif channel == 'trades':
+                    self._websocket_handle_subscription(contextId, 'trade', msg)
             elif event == 'unsubscribed':
                 self._websocket_handle_unsubscription(contextId, msg)
             elif event == 'error':
@@ -516,6 +525,8 @@ class bitfinex2 (bitfinex):
             event = channels[chanKey]['event']
             if event == 'ob':
                 self._websocket_handle_order_book(contextId, symbol, msg)
+            elif event == 'trade':
+                self._websocket_handle_trade(contextId, symbol, msg)
 
     def _websocket_handle_info_version(self, contextId, data):
         version = self.safe_integer(data, 'version')
@@ -535,7 +546,28 @@ class bitfinex2 (bitfinex):
             id = self.safe_string(msg, 'symbol')
             symbol = self.find_symbol(id)
             self._websocket_process_pending_nonces(contextId, 'sub-nonces', 'ob', symbol, False, ex)
+        elif channel == 'trades':
+            id = self.safe_string(msg, 'symbol')
+            symbol = self.find_symbol(id)
+            self._websocket_process_pending_nonces(contextId, 'sub-nonces', 'trade', symbol, False, ex)
         self.emit('err', ex, contextId)
+
+    def _websocket_handle_trade(self, contextId, symbol, msg):
+        market = self.market(symbol)
+        # From http://blog.bitfinex.com/api/websocket-api-update:
+        # "We are splitting the public trade messages into two: a “te” message which mimics the current behavior, and a “tu” message which will be delayed by 1-2 seconds and include the tradeId. If the tradeId is important to you, use the “tu” message. If speed is important to you, listen to the “te” message. Or of course use both if you’d like."
+        if msg[1] == 'te':
+            # te update
+            trades = [msg[2]]
+        elif msg[1] == 'tu':
+            # tu update, ignore
+            return
+        else:
+            # snapshot
+            trades = msg[1]
+        trades = self.parseTrades(trades, market)
+        for i in range(0, len(trades)):
+            self.emit('trade', symbol, trades[i])
 
     def _websocket_handle_order_book(self, contextId, symbol, msg):
         data = msg[1]
@@ -630,7 +662,10 @@ class bitfinex2 (bitfinex):
         symbolData = self._contextGetSymbolData(contextId, event, symbol)
         symbolData['channelId'] = channel
         self._contextSetSymbolData(contextId, event, symbol, symbolData)
-        self._websocket_process_pending_nonces(contextId, 'sub-nonces', 'ob', symbol, True, None)
+        if event == 'ob':
+            self._websocket_process_pending_nonces(contextId, 'sub-nonces', 'ob', symbol, True, None)
+        elif event == 'trade':
+            self._websocket_process_pending_nonces(contextId, 'sub-nonces', 'trade', symbol, True, None)
 
     def _websocket_handle_unsubscription(self, contextId, msg):
         status = self.safe_string(msg, 'status')
@@ -649,7 +684,7 @@ class bitfinex2 (bitfinex):
             self._websocket_process_pending_nonces(contextId, 'unsub-nonces', event, symbol, True, None)
 
     def _websocket_subscribe(self, contextId, event, symbol, nonce, params={}):
-        if event != 'ob':
+        if event != 'ob' and event != 'trade':
             raise NotSupported('subscribe ' + event + '(' + symbol + ') not supported for exchange ' + self.id)
         # save nonce for subscription response
         symbolData = self._contextGetSymbolData(contextId, event, symbol)
@@ -662,17 +697,24 @@ class bitfinex2 (bitfinex):
         self._contextSetSymbolData(contextId, event, symbol, symbolData)
         # send request
         id = self.market_id(symbol)
-        self.websocketSendJson({
-            'event': 'subscribe',
-            'channel': 'book',
-            'symbol': id,
-            'prec': 'P0',
-            'freq': 'F0',
-            'len': '100',
-        })
+        if event == 'ob':
+            self.websocketSendJson({
+                'event': 'subscribe',
+                'channel': 'book',
+                'symbol': id,
+                'prec': 'P0',
+                'freq': 'F0',
+                'len': '100',
+            })
+        elif event == 'trade':
+            self.websocketSendJson({
+                'event': 'subscribe',
+                'channel': 'trades',
+                'symbol': id,
+            })
 
     def _websocket_unsubscribe(self, contextId, event, symbol, nonce, params={}):
-        if event != 'ob':
+        if event != 'ob' and event != 'trade':
             raise NotSupported('unsubscribe ' + event + '(' + symbol + ') not supported for exchange ' + self.id)
         symbolData = self._contextGetSymbolData(contextId, event, symbol)
         payload = {

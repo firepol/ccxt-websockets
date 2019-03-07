@@ -680,7 +680,6 @@ class Exchange(BaseExchange, EventEmitter):
             self.websocketDelayedConnections = {}
 
     async def websocket_connect(self, conxid='default'):
-        print("connecting conxid:" + conxid)
         sys.stdout.flush()
         websocket_conx_info = self._contextGetConnectionInfo(conxid)
         conx_tpl = self._contextGetConxTpl(conxid)

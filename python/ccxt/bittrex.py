@@ -214,6 +214,13 @@ class bittrex (Exchange):
                             'id': '{id}',
                         },
                     },
+                    'trade': {
+                        'conx-tpl': 'default',
+                        'conx-param': {
+                            'url': '{baseurl}{ConnectionToken}',
+                            'id': '{id}',
+                        },
+                    },
                 },
             },
         })
@@ -1041,9 +1048,32 @@ class bittrex (Exchange):
                             parsedData = json.loads(data)
                             self._websocket_handle_order_book_delta(contextId, parsedData)
 
+    def _websocket_parse_trade(self, trade, symbol):
+        # Websocket trade format different than REST trade format
+        id = self.safeString(trade, 'FI')
+        side = 'sell'
+        if self.safeString(trade, 'OT') == 'BUY':
+            side = 'buy'
+        price = self.safeFloat(trade, 'R')
+        amount = self.safeFloat(trade, 'Q')
+        timestamp = self.safeInteger(trade, 'T')
+        return {
+            'id': id,
+            'info': trade,
+            'timestamp': timestamp,
+            'datetime': self.iso8601(timestamp),
+            'symbol': symbol,
+            'type': None,
+            'side': side,
+            'price': price,
+            'amount': amount,
+        }
+
     def _websocket_handle_order_book_snapshot(self, contextId, data):
         id = self.safe_string(data, 'M')
         symbol = self.find_symbol(id)
+        if not self._contextIsSubscribed(contextId, 'ob', symbol):
+            return
         ob = self.parse_order_book(data, None, 'Z', 'S', 'R', 'Q')
         symbolData = self._contextGetSymbolData(contextId, 'ob', symbol)
         symbolData['ob'] = ob
@@ -1054,46 +1084,57 @@ class bittrex (Exchange):
         # {"M":"USDT-BTC","N":912014,"Z":[{"TY":0,"R":3504.97634920,"Q":0.26480207},{"TY":1,"R":3504.97634919,"Q":0.0}],"S":[{"TY":0,"R":3579.37236706,"Q":0.21455380},{"TY":1,"R":6429.20850000,"Q":0.0}],"f":[]}
         id = self.safe_string(data, 'M')
         symbol = self.find_symbol(id)
-        symbolData = self._contextGetSymbolData(contextId, 'ob', symbol)
-        if 'ob' in symbolData:
-            # snapshot previously received, else raise it
-            bids = self.safe_value(data, 'Z')
-            asks = self.safe_value(data, 'S')
-            if bids is not None:
-                for i in range(0, len(bids)):
-                    elemType = self.safe_integer(bids[i], 'TY')
-                    price = self.safe_float(bids[i], 'R')
-                    amount = self.safe_float(bids[i], 'Q')
-                    # 0 = ADD, 1 = REMOVE, 2 = UPDATE
-                    if elemType == 1:
-                        self.updateBidAsk([price, 0], symbolData['ob']['bids'], True)
-                    else:
-                        self.updateBidAsk([price, amount], symbolData['ob']['bids'], True)
-            if asks is not None:
-                for i in range(0, len(asks)):
-                    elemType = self.safe_integer(asks[i], 'TY')
-                    price = self.safe_float(asks[i], 'R')
-                    amount = self.safe_float(asks[i], 'Q')
-                    # 0 = ADD, 1 = REMOVE, 2 = UPDATE
-                    if elemType == 1:
-                        self.updateBidAsk([price, 0], symbolData['ob']['asks'], False)
-                    else:
-                        self.updateBidAsk([price, amount], symbolData['ob']['asks'], False)
-            self.emit('ob', symbol, self._cloneOrderBook(symbolData['ob'], symbolData['limit']))
-            self._contextSetSymbolData(contextId, 'ob', symbol, symbolData)
+        if self._contextIsSubscribed(contextId, 'ob', symbol):
+            symbolData = self._contextGetSymbolData(contextId, 'ob', symbol)
+            if 'ob' in symbolData:
+                # snapshot previously received, else raise it
+                bids = self.safe_value(data, 'Z')
+                asks = self.safe_value(data, 'S')
+                if bids is not None:
+                    for i in range(0, len(bids)):
+                        elemType = self.safe_integer(bids[i], 'TY')
+                        price = self.safe_float(bids[i], 'R')
+                        amount = self.safe_float(bids[i], 'Q')
+                        # 0 = ADD, 1 = REMOVE, 2 = UPDATE
+                        if elemType == 1:
+                            self.updateBidAsk([price, 0], symbolData['ob']['bids'], True)
+                        else:
+                            self.updateBidAsk([price, amount], symbolData['ob']['bids'], True)
+                if asks is not None:
+                    for i in range(0, len(asks)):
+                        elemType = self.safe_integer(asks[i], 'TY')
+                        price = self.safe_float(asks[i], 'R')
+                        amount = self.safe_float(asks[i], 'Q')
+                        # 0 = ADD, 1 = REMOVE, 2 = UPDATE
+                        if elemType == 1:
+                            self.updateBidAsk([price, 0], symbolData['ob']['asks'], False)
+                        else:
+                            self.updateBidAsk([price, amount], symbolData['ob']['asks'], False)
+                self.emit('ob', symbol, self._cloneOrderBook(symbolData['ob'], symbolData['limit']))
+                self._contextSetSymbolData(contextId, 'ob', symbol, symbolData)
+        if self._contextIsSubscribed(contextId, 'trade', symbol):
+            fills = self.safeValue(data, 'f')
+            if fills is not None:
+                for i in range(0, len(fills)):
+                    trade = self._websocket_parse_trade(fills[i], symbol)
+                    self.emit('trade', symbol, trade)
 
     def _websocket_subscribe(self, contextId, event, symbol, nonce, params={}):
-        if event != 'ob':
+        if event != 'ob' and event != 'trade':
             raise NotSupported('subscribe ' + event + '(' + symbol + ') not supported for exchange ' + self.id)
-        symbolData = self._contextGetSymbolData(contextId, event, symbol)
-        symbolData['limit'] = self.safe_integer(params, 'limit', None)
+        if event == 'ob':
+            symbolData = self._contextGetSymbolData(contextId, event, symbol)
+            symbolData['limit'] = self.safe_integer(params, 'limit', None)
+            self._contextSetSymbolData(contextId, event, symbol, symbolData)
         nonceStr = str(nonce)
-        self._contextSetSymbolData(contextId, event, symbol, symbolData)
-        # send request
-        id = self.market_id(symbol)
-        self.websocketSendJson({
-            'H': 'c2',
-            'M': 'SubscribeToExchangeDeltas',
-            'A': [id],
-            'I': 'ob-sub_' + nonceStr + '_' + id,
-        })
+        if not self._contextIsSubscribed(contextId, 'ob', symbol) and not self._contextIsSubscribed(contextId, 'trade', symbol):
+            # send request
+            id = self.market_id(symbol)
+            self.websocketSendJson({
+                'H': 'c2',
+                'M': 'SubscribeToExchangeDeltas',
+                'A': [id],
+                'I': 'ob-sub_' + nonceStr + '_' + id,
+            })
+        else:
+            self.emit(nonceStr, True)
