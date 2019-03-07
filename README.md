@@ -2,6 +2,8 @@
 
 Just the transpiled files from [CCXT lfern/websockets-multiple fork](https://github.com/lfern/ccxt/tree/feature/websockets-multiple), to speed up installation.
 
+For a practical example on how to use this in a python project, check [ccxt-websockets-db-updater](https://github.com/firepol/ccxt-websockets-db-updater)
+
 Check also the main thread about websockets in the official CCXT project:  
 [Streaming (WS, Websocket support): Orderbooks, Trades, Balances...](https://github.com/ccxt/ccxt/issues/56)
 
