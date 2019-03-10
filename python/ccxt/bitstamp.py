@@ -191,6 +191,13 @@ class bitstamp (Exchange):
                             'id': '{id}',
                         },
                     },
+                    'trade': {
+                        'conx-tpl': 'default',
+                        'conx-param': {
+                            'url': '{baseurl}',
+                            'id': '{id}',
+                        },
+                    },
                 },
             },
         })
@@ -872,6 +879,8 @@ class bitstamp (Exchange):
             chan = self.safe_string(msg, 'channel')
             if chan.find('order_book') >= 0:
                 self._websocket_handle_orderbook(contextId, msg)
+        elif evt == 'trade':
+            self._websocket_handle_trade(contextId, msg)
 
     def _websocket_handle_orderbook(self, contextId, msg):
         chan = self.safe_string(msg, 'channel')
@@ -888,15 +897,50 @@ class bitstamp (Exchange):
         self.emit('ob', symbol, self._cloneOrderBook(ob, symbolData['limit']))
         self._contextSetSymbolData(contextId, 'ob', symbol, symbolData)
 
+    def _websocket_parse_trade(self, data, symbol):
+        timestamp_ms = int(self.safe_integer(data, 'microtimestamp') / 1000)
+        side = self.safe_string(data, 'type')
+        if side is not None:
+            side = 'sell' if (side == '1') else 'buy'
+        return {
+            'id': self.safeString(data, 'id'),
+            'info': data,
+            'timestamp': timestamp_ms,
+            'datetime': self.iso8601(timestamp_ms),
+            'symbol': symbol,
+            'type': None,
+            'side': side,
+            'price': self.safeFloat(data, 'price'),
+            'amount': self.safeFloat(data, 'amount'),
+        }
+
+    def _websocket_handle_trade(self, contextId, msg):
+        # msg example: {'event': 'trade', 'channel': 'live_trades_btceur', 'data': {'microtimestamp': '1551914592860723', 'amount': 0.06388482, 'buy_order_id': 2967695978, 'sell_order_id': 2967695603, 'amount_str': '0.06388482', 'price_str': '3407.43', 'timestamp': '1551914592', 'price': 3407.43, 'type': 0, 'id': 83631877}}
+        chan = self.safe_string(msg, 'channel')
+        parts = chan.split('_')
+        id = 'btcusd'
+        if len(parts) > 2:
+            id = parts[2]
+        symbol = self.find_symbol(id)
+        data = self.safe_value(msg, 'data')
+        trade = self._websocket_parse_trade(data, symbol)
+        self.emit('trade', symbol, trade)
+
     def _websocket_handle_subscription(self, contextId, msg):
         chan = self.safe_string(msg, 'channel')
         if chan.find('order_book') >= 0:
+            event = 'ob'
+        elif chan.find('live_trades') >= 0:
+            event = 'trade'
+        else:
+            event = None
+        if event is not None:
             parts = chan.split('_')
             id = 'btcusd'
             if len(parts) > 2:
                 id = parts[2]
             symbol = self.find_symbol(id)
-            symbolData = self._contextGetSymbolData(contextId, 'ob', symbol)
+            symbolData = self._contextGetSymbolData(contextId, event, symbol)
             if 'sub-nonces' in symbolData:
                 nonces = symbolData['sub-nonces']
                 keys = list(nonces.keys())
@@ -905,10 +949,10 @@ class bitstamp (Exchange):
                     self._cancelTimeout(nonces[nonce])
                     self.emit(nonce, True)
                 symbolData['sub-nonces'] = {}
-                self._contextSetSymbolData(contextId, 'ob', symbol, symbolData)
+                self._contextSetSymbolData(contextId, event, symbol, symbolData)
 
     def _websocket_subscribe(self, contextId, event, symbol, nonce, params={}):
-        if event != 'ob':
+        if event != 'ob' and event != 'trade':
             raise NotSupported('subscribe ' + event + '(' + symbol + ') not supported for exchange ' + self.id)
         # save nonce for subscription response
         symbolData = self._contextGetSymbolData(contextId, event, symbol)
@@ -920,7 +964,10 @@ class bitstamp (Exchange):
         symbolData['sub-nonces'][nonceStr] = handle
         self._contextSetSymbolData(contextId, event, symbol, symbolData)
         # send request
-        channel = 'order_book'
+        if event == 'ob':
+            channel = 'order_book'
+        elif event == 'trade':
+            channel = 'live_trades'
         if symbol != 'BTC/USD':
             id = self.market_id(symbol)
             channel = channel + '_' + id
@@ -930,9 +977,12 @@ class bitstamp (Exchange):
         }, contextId)
 
     def _websocket_unsubscribe(self, contextId, event, symbol, nonce, params={}):
-        if event != 'ob':
+        if event != 'ob' and event != 'trade':
             raise NotSupported('unsubscribe ' + event + '(' + symbol + ') not supported for exchange ' + self.id)
-        channel = 'order_book'
+        if event == 'ob':
+            channel = 'order_book'
+        elif event == 'trade':
+            channel = 'live_trades'
         if symbol != 'BTC/USD':
             id = self.market_id(symbol)
             channel = channel + '_' + id

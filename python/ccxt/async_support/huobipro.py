@@ -180,6 +180,13 @@ class huobipro (Exchange):
                             'id': '{id}',
                         },
                     },
+                    'trade': {
+                        'conx-tpl': 'default',
+                        'conx-param': {
+                            'url': '{baseurl}',
+                            'id': '{id}',
+                        },
+                    },
                 },
             },
         })
@@ -949,6 +956,21 @@ class huobipro (Exchange):
             self._websocket_dispatch(contextId, msg)
         #  else :remove console.log(text)
 
+    def _websocket_parse_trade(self, trade, symbol):
+        # {'amount': 0.01, 'ts': 1551963266001, 'id': 10049953357926186872465, 'price': 3877.04, 'direction': 'sell'}
+        timestamp = self.safe_integer(trade, 'ts')
+        return {
+            'id': self.safeString(trade, 'id'),
+            'info': trade,
+            'timestamp': timestamp,
+            'datetime': self.iso8601(timestamp),
+            'symbol': symbol,
+            'type': None,
+            'side': self.safeString(trade, 'direction'),
+            'price': self.safeFloat(trade, 'price'),
+            'amount': self.safeFloat(trade, 'amount'),
+        }
+
     def _websocket_dispatch(self, contextId, data):
         # console.log('received', data.ch, 'data.ts', data.ts, 'crawler.ts', moment().format('x'))
         ch = self.safe_string(data, 'ch')
@@ -971,23 +993,34 @@ class huobipro (Exchange):
             self._contextSetSymbolData(contextId, 'ob', symbol, symbolData)
             # note, huobipro limit != depth
             self.emit('ob', symbol, self._cloneOrderBook(symbolData['ob'], symbolData['limit']))
+        elif channel == 'trade':
+            # data:
+            # {'ch': 'market.btchusd.trade.detail', 'ts': 1551962828309, 'tick': {'id': 100123237799, 'ts': 1551962828291, 'data': [{'amount': 0.435, 'ts': 1551962828291, 'id': 10012323779926186502443, 'price': 3871.72, 'direction': 'sell'}]}}
+            multiple_trades = data['tick']['data']
+            for i in range(0, len(multiple_trades)):
+                trade = self._websocket_parse_trade(multiple_trades[i], symbol)
+                self.emit('trade', symbol, trade)
         # TODO:kline
         # console.log('kline', data.tick)
 
     def _websocket_subscribe(self, contextId, event, symbol, nonce, params={}):
-        if event != 'ob':
+        if event != 'ob' and event != 'trade':
             raise NotSupported('subscribe ' + event + '(' + symbol + ') not supported for exchange ' + self.id)
-        data = self._contextGetSymbolData(contextId, event, symbol)
-        # depth from 0 to 5
-        # see https://github.com/huobiapi/API_Docs/wiki/WS_api_reference#%E8%AE%A2%E9%98%85-market-depth-%E6%95%B0%E6%8D%AE-marketsymboldepthtype
-        depth = self.safe_integer(params, 'depth', 2)
-        data['depth'] = depth
-        # it is not limit
-        data['limit'] = self.safe_integer(params, 'limit', 100)
-        self._contextSetSymbolData(contextId, event, symbol, data)
+        if event == 'ob':
+            data = self._contextGetSymbolData(contextId, event, symbol)
+            # depth from 0 to 5
+            # see https://github.com/huobiapi/API_Docs/wiki/WS_api_reference#%E8%AE%A2%E9%98%85-market-depth-%E6%95%B0%E6%8D%AE-marketsymboldepthtype
+            depth = self.safe_integer(params, 'depth', 2)
+            data['depth'] = depth
+            # it is not limit
+            data['limit'] = self.safe_integer(params, 'limit', 100)
+            self._contextSetSymbolData(contextId, event, symbol, data)
+            ch = '.depth.step' + str(depth)
+        elif event == 'trade':
+            ch = '.trade.detail'
         rawsymbol = self.market_id(symbol)
         sendJson = {
-            'sub': 'market.' + rawsymbol + '.depth.step' + str(depth),
+            'sub': 'market.' + rawsymbol + ch,
             'id': rawsymbol,
         }
         self.websocketSendJson(sendJson)
@@ -995,12 +1028,16 @@ class huobipro (Exchange):
         self.emit(nonceStr, True)
 
     def _websocket_unsubscribe(self, contextId, event, symbol, nonce, params={}):
-        if event != 'ob':
+        if event != 'ob' and event != 'trade':
             raise NotSupported('unsubscribe ' + event + '(' + symbol + ') not supported for exchange ' + self.id)
-        depth = self.safe_integer(params, 'depth', 2)
+        if event == 'ob':
+            depth = self.safe_integer(params, 'depth', 2)
+            ch = '.depth.step' + str(depth)
+        elif event == 'trade':
+            ch = '.trade.detail'
         rawsymbol = self.market_id(symbol)
         sendJson = {
-            'unsub': 'market.' + rawsymbol + '.depth.step' + str(depth),
+            'unsub': 'market.' + rawsymbol + ch,
             'id': rawsymbol,
         }
         self.websocketSendJson(sendJson)
