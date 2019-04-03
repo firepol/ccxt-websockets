@@ -160,6 +160,13 @@ class bitmex (Exchange):
                             'id': '{id}',
                         },
                     },
+                    'trade': {
+                        'conx-tpl': 'default',
+                        'conx-param': {
+                            'url': '{baseurl}',
+                            'id': '{id}',
+                        },
+                    },
                 },
             },
             'exceptions': {
@@ -656,12 +663,14 @@ class bitmex (Exchange):
         unsubscribe = self.safe_string(msg, 'unsubscribe')
         status = self.safe_integer(msg, 'status')
         if subscribe is not None:
-            self._websocket_handle_subscription(contextId, 'ob', msg)
+            self._websocket_handle_subscription(contextId, msg)
         elif unsubscribe is not None:
-            self._websocket_handle_unsubscription(contextId, 'ob', msg)
+            self._websocket_handle_unsubscription(contextId, msg)
         elif table is not None:
             if table == 'orderBookL2':
                 self._websocket_handle_ob(contextId, msg)
+            elif table == 'trade':
+                self._websocket_handle_trade(contextId, msg)
         elif status is not None:
             self._websocket_handle_error(contextId, msg)
 
@@ -673,13 +682,19 @@ class bitmex (Exchange):
         error = self.safe_string(msg, 'error')
         self.emit('err', ExchangeError(self.id + ' status ' + status + ':' + error), contextId)
 
-    def _websocket_handle_subscription(self, contextId, event, msg):
+    def _websocket_handle_subscription(self, contextId, msg):
         success = self.safe_value(msg, 'success')
         subscribe = self.safe_string(msg, 'subscribe')
         parts = subscribe.split(':')
         partsLen = len(parts)
         if partsLen == 2:
             if parts[0] == 'orderBookL2':
+                event = 'ob'
+            elif parts[0] == 'trade':
+                event = 'trade'
+            else:
+                event = None
+            if event is not None:
                 symbol = self.find_symbol(parts[1])
                 symbolData = self._contextGetSymbolData(contextId, event, symbol)
                 if 'sub-nonces' in symbolData:
@@ -692,15 +707,21 @@ class bitmex (Exchange):
                     symbolData['sub-nonces'] = {}
                     self._contextSetSymbolData(contextId, event, symbol, symbolData)
 
-    def _websocket_handle_unsubscription(self, contextId, event, msg):
+    def _websocket_handle_unsubscription(self, contextId, msg):
         success = self.safe_value(msg, 'success')
         unsubscribe = self.safe_string(msg, 'unsubscribe')
         parts = unsubscribe.split(':')
         partsLen = len(parts)
         if partsLen == 2:
             if parts[0] == 'orderBookL2':
+                event = 'ob'
+            elif parts[0] == 'trade':
+                event = 'trade'
+            else:
+                event = None
+            if event is not None:
                 symbol = self.find_symbol(parts[1])
-                if success:
+                if success and event == 'ob':
                     dbids = self._contextGet(contextId, 'dbids')
                     if symbol in dbids:
                         self.omit(dbids, symbol)
@@ -715,6 +736,14 @@ class bitmex (Exchange):
                         self.emit(nonce, success)
                     symbolData['unsub-nonces'] = {}
                     self._contextSetSymbolData(contextId, event, symbol, symbolData)
+
+    def _websocket_handle_trade(self, contextId, msg):
+        data = self.safe_value(msg, 'data')
+        symbol = self.safe_string(data[0], 'symbol')
+        symbol = self.find_symbol(symbol)
+        trades = self.parseTrades(data)
+        for t in range(0, len(trades)):
+            self.emit('trade', symbol, trades[t])
 
     def _websocket_handle_ob(self, contextId, msg):
         action = self.safe_string(msg, 'action')
@@ -790,13 +819,19 @@ class bitmex (Exchange):
         self._contextSetSymbolData(contextId, 'ob', symbol, symbolData)
 
     def _websocket_subscribe(self, contextId, event, symbol, nonce, params={}):
-        if event != 'ob':
+        if event != 'ob' and event != 'trade':
             raise NotSupported('subscribe ' + event + '(' + symbol + ') not supported for exchange ' + self.id)
         id = self.market_id(symbol).upper()
-        payload = {
-            'op': 'subscribe',
-            'args': ['orderBookL2:' + id],
-        }
+        if event == 'ob':
+            payload = {
+                'op': 'subscribe',
+                'args': ['orderBookL2:' + id],
+            }
+        elif event == 'trade':
+            payload = {
+                'op': 'subscribe',
+                'args': ['trade:' + id],
+            }
         symbolData = self._contextGetSymbolData(contextId, event, symbol)
         if not('sub-nonces' in list(symbolData.keys())):
             symbolData['sub-nonces'] = {}
@@ -808,13 +843,19 @@ class bitmex (Exchange):
         self.websocketSendJson(payload)
 
     def _websocket_unsubscribe(self, contextId, event, symbol, nonce, params={}):
-        if event != 'ob':
+        if event != 'ob' and event != 'trade':
             raise NotSupported('unsubscribe ' + event + '(' + symbol + ') not supported for exchange ' + self.id)
         id = self.market_id(symbol).upper()
-        payload = {
-            'op': 'unsubscribe',
-            'args': ['orderBookL2:' + id],
-        }
+        if event == 'ob':
+            payload = {
+                'op': 'unsubscribe',
+                'args': ['orderBookL2:' + id],
+            }
+        elif event == 'trade':
+            payload = {
+                'op': 'unsubscribe',
+                'args': ['trade:' + id],
+            }
         symbolData = self._contextGetSymbolData(contextId, event, symbol)
         if not('unsub-nonces' in list(symbolData.keys())):
             symbolData['unsub-nonces'] = {}
