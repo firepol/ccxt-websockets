@@ -903,15 +903,15 @@ class bitstamp (Exchange):
         if side is not None:
             side = 'sell' if (side == '1') else 'buy'
         return {
-            'id': self.safeString(data, 'id'),
+            'id': self.safe_string(data, 'id'),
             'info': data,
             'timestamp': timestamp_ms,
             'datetime': self.iso8601(timestamp_ms),
             'symbol': symbol,
             'type': None,
             'side': side,
-            'price': self.safeFloat(data, 'price'),
-            'amount': self.safeFloat(data, 'amount'),
+            'price': self.safe_float(data, 'price'),
+            'amount': self.safe_float(data, 'amount'),
         }
 
     def _websocket_handle_trade(self, contextId, msg):
@@ -928,6 +928,7 @@ class bitstamp (Exchange):
 
     def _websocket_handle_subscription(self, contextId, msg):
         chan = self.safe_string(msg, 'channel')
+        event = None
         if chan.find('order_book') >= 0:
             event = 'ob'
         elif chan.find('live_trades') >= 0:
@@ -961,6 +962,7 @@ class bitstamp (Exchange):
         symbolData['limit'] = self.safe_integer(params, 'limit', None)
         nonceStr = str(nonce)
         handle = self._setTimeout(contextId, self.timeout, self._websocketMethodMap('_websocketTimeoutRemoveNonce'), [contextId, nonceStr, event, symbol, 'sub-nonce'])
+        channel = None
         symbolData['sub-nonces'][nonceStr] = handle
         self._contextSetSymbolData(contextId, event, symbol, symbolData)
         # send request
@@ -977,6 +979,7 @@ class bitstamp (Exchange):
         }, contextId)
 
     def _websocket_unsubscribe(self, contextId, event, symbol, nonce, params={}):
+        channel = None
         if event != 'ob' and event != 'trade':
             raise NotSupported('unsubscribe ' + event + '(' + symbol + ') not supported for exchange ' + self.id)
         if event == 'ob':

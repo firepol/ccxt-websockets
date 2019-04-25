@@ -687,6 +687,7 @@ class bitmex (Exchange):
         subscribe = self.safe_string(msg, 'subscribe')
         parts = subscribe.split(':')
         partsLen = len(parts)
+        event = None
         if partsLen == 2:
             if parts[0] == 'orderBookL2':
                 event = 'ob'
@@ -712,6 +713,7 @@ class bitmex (Exchange):
         unsubscribe = self.safe_string(msg, 'unsubscribe')
         parts = unsubscribe.split(':')
         partsLen = len(parts)
+        event = None
         if partsLen == 2:
             if parts[0] == 'orderBookL2':
                 event = 'ob'
@@ -739,9 +741,11 @@ class bitmex (Exchange):
 
     def _websocket_handle_trade(self, contextId, msg):
         data = self.safe_value(msg, 'data')
+        if data is None or len(data) == 0:
+            return
         symbol = self.safe_string(data[0], 'symbol')
+        trades = self.parse_trades(data)
         symbol = self.find_symbol(symbol)
-        trades = self.parseTrades(data)
         for t in range(0, len(trades)):
             self.emit('trade', symbol, trades[t])
 
@@ -749,9 +753,9 @@ class bitmex (Exchange):
         action = self.safe_string(msg, 'action')
         data = self.safe_value(msg, 'data')
         symbol = self.safe_string(data[0], 'symbol')
-        symbol = self.find_symbol(symbol)
         dbids = self._contextGet(contextId, 'dbids')
         symbolData = self._contextGetSymbolData(contextId, 'ob', symbol)
+        symbol = self.find_symbol(symbol)
         if action == 'partial':
             ob = {
                 'bids': [],
@@ -822,6 +826,7 @@ class bitmex (Exchange):
         if event != 'ob' and event != 'trade':
             raise NotSupported('subscribe ' + event + '(' + symbol + ') not supported for exchange ' + self.id)
         id = self.market_id(symbol).upper()
+        payload = None
         if event == 'ob':
             payload = {
                 'op': 'subscribe',
@@ -846,6 +851,7 @@ class bitmex (Exchange):
         if event != 'ob' and event != 'trade':
             raise NotSupported('unsubscribe ' + event + '(' + symbol + ') not supported for exchange ' + self.id)
         id = self.market_id(symbol).upper()
+        payload = None
         if event == 'ob':
             payload = {
                 'op': 'unsubscribe',

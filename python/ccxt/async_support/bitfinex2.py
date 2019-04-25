@@ -554,6 +554,7 @@ class bitfinex2 (bitfinex):
 
     def _websocket_handle_trade(self, contextId, symbol, msg):
         market = self.market(symbol)
+        trades = None
         # From http://blog.bitfinex.com/api/websocket-api-update:
         # "We are splitting the public trade messages into two: a “te” message which mimics the current behavior, and a “tu” message which will be delayed by 1-2 seconds and include the tradeId. If the tradeId is important to you, use the “tu” message. If speed is important to you, listen to the “te” message. Or of course use both if you’d like."
         if msg[1] == 'te':
@@ -565,7 +566,7 @@ class bitfinex2 (bitfinex):
         else:
             # snapshot
             trades = msg[1]
-        trades = self.parseTrades(trades, market)
+        trades = self.parse_trades(trades, market)
         for i in range(0, len(trades)):
             self.emit('trade', symbol, trades[i])
 

@@ -960,15 +960,15 @@ class huobipro (Exchange):
         # {'amount': 0.01, 'ts': 1551963266001, 'id': 10049953357926186872465, 'price': 3877.04, 'direction': 'sell'}
         timestamp = self.safe_integer(trade, 'ts')
         return {
-            'id': self.safeString(trade, 'id'),
+            'id': self.safe_string(trade, 'id'),
             'info': trade,
             'timestamp': timestamp,
             'datetime': self.iso8601(timestamp),
             'symbol': symbol,
             'type': None,
-            'side': self.safeString(trade, 'direction'),
-            'price': self.safeFloat(trade, 'price'),
-            'amount': self.safeFloat(trade, 'amount'),
+            'side': self.safe_string(trade, 'direction'),
+            'price': self.safe_float(trade, 'price'),
+            'amount': self.safe_float(trade, 'amount'),
         }
 
     def _websocket_dispatch(self, contextId, data):
@@ -1006,6 +1006,7 @@ class huobipro (Exchange):
     def _websocket_subscribe(self, contextId, event, symbol, nonce, params={}):
         if event != 'ob' and event != 'trade':
             raise NotSupported('subscribe ' + event + '(' + symbol + ') not supported for exchange ' + self.id)
+        ch = None
         if event == 'ob':
             data = self._contextGetSymbolData(contextId, event, symbol)
             # depth from 0 to 5
@@ -1030,6 +1031,7 @@ class huobipro (Exchange):
     def _websocket_unsubscribe(self, contextId, event, symbol, nonce, params={}):
         if event != 'ob' and event != 'trade':
             raise NotSupported('unsubscribe ' + event + '(' + symbol + ') not supported for exchange ' + self.id)
+        ch = None
         if event == 'ob':
             depth = self.safe_integer(params, 'depth', 2)
             ch = '.depth.step' + str(depth)

@@ -1050,13 +1050,13 @@ class bittrex (Exchange):
 
     def _websocket_parse_trade(self, trade, symbol):
         # Websocket trade format different than REST trade format
-        id = self.safeString(trade, 'FI')
+        id = self.safe_string(trade, 'FI')
         side = 'sell'
-        if self.safeString(trade, 'OT') == 'BUY':
+        if self.safe_string(trade, 'OT') == 'BUY':
             side = 'buy'
-        price = self.safeFloat(trade, 'R')
-        amount = self.safeFloat(trade, 'Q')
-        timestamp = self.safeInteger(trade, 'T')
+        price = self.safe_float(trade, 'R')
+        amount = self.safe_float(trade, 'Q')
+        timestamp = self.safe_integer(trade, 'T')
         return {
             'id': id,
             'info': trade,
@@ -1113,7 +1113,7 @@ class bittrex (Exchange):
                 self.emit('ob', symbol, self._cloneOrderBook(symbolData['ob'], symbolData['limit']))
                 self._contextSetSymbolData(contextId, 'ob', symbol, symbolData)
         if self._contextIsSubscribed(contextId, 'trade', symbol):
-            fills = self.safeValue(data, 'f')
+            fills = self.safe_value(data, 'f')
             if fills is not None:
                 for i in range(0, len(fills)):
                     trade = self._websocket_parse_trade(fills[i], symbol)
