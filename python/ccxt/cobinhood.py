@@ -10,6 +10,7 @@ from ccxt.base.errors import PermissionDenied
 from ccxt.base.errors import InsufficientFunds
 from ccxt.base.errors import InvalidAddress
 from ccxt.base.errors import InvalidOrder
+from ccxt.base.errors import OrderNotFound
 from ccxt.base.errors import NotSupported
 from ccxt.base.errors import InvalidNonce
 from ccxt.base.errors import RequestTimeout
@@ -190,6 +191,7 @@ class cobinhood (Exchange):
                 'invalid_nonce': InvalidNonce,
                 'unauthorized_scope': PermissionDenied,
                 'invalid_address': InvalidAddress,
+                'parameter_error': OrderNotFound,
             },
             'commonCurrencies': {
                 'SMT': 'SocialMedia.Market',
@@ -623,8 +625,15 @@ class cobinhood (Exchange):
 
     def fetch_closed_orders(self, symbol=None, since=None, limit=None, params={}):
         self.load_markets()
-        result = self.privateGetTradingOrderHistory(params)
-        orders = self.parse_orders(result['result']['orders'], None, since, limit)
+        request = {}
+        market = None
+        if symbol is not None:
+            market = self.market(symbol)
+            request['trading_pair_id'] = market['id']
+        if limit is not None:
+            request['limit'] = limit  # default 50, max 100
+        result = self.privateGetTradingOrderHistory(self.extend(request, params))
+        orders = self.parse_orders(result['result']['orders'], market, since, limit)
         if symbol is not None:
             return self.filter_by_symbol_since_limit(orders, symbol, since, limit)
         return self.filter_by_since_limit(orders, since, limit)
@@ -714,7 +723,7 @@ class cobinhood (Exchange):
     def fetch_deposits(self, code=None, since=None, limit=None, params={}):
         self.load_markets()
         if code is None:
-            raise ExchangeError(self.id + ' fetchDeposits() requires a currency code arguemnt')
+            raise ExchangeError(self.id + ' fetchDeposits() requires a currency code argument')
         currency = self.currency(code)
         request = {
             'currency': currency['id'],
@@ -725,7 +734,7 @@ class cobinhood (Exchange):
     def fetch_withdrawals(self, code=None, since=None, limit=None, params={}):
         self.load_markets()
         if code is None:
-            raise ExchangeError(self.id + ' fetchWithdrawals() requires a currency code arguemnt')
+            raise ExchangeError(self.id + ' fetchWithdrawals() requires a currency code argument')
         currency = self.currency(code)
         request = {
             'currency': currency['id'],
@@ -1015,25 +1024,25 @@ class cobinhood (Exchange):
         data = self.safe_value(msg, 'd')
         if not isinstance(data, list):
             data = [data]
-        ohlcvs = []
-        for i in range(0, len(data)):
-            d = data[i]
-            timestamp = int(d[0])
-            volume = float(d[1])
-            high = float(d[2])
-            low = float(d[3])
-            open = float(d[4])
-            close = float(d[5])
-            o = [
-                timestamp,
-                open,
-                high,
-                low,
-                close,
-                volume,
-            ]
-            ohlcvs.append(o)
-        self.emit('ohlcv', symbol, ohlcvs)
+        dl = len(data)  # Transpiler is bugged
+        if dl != 1:
+            return None
+        d = data[dl - 1]
+        timestamp = int(d[0])
+        volume = float(d[1])
+        high = float(d[2])
+        low = float(d[3])
+        open = float(d[4])
+        close = float(d[5])
+        o = [
+            timestamp,
+            open,
+            high,
+            low,
+            close,
+            volume,
+        ]
+        self.emit('ohlcv', symbol, o)
 
     def _websocket_process_pending_nonces(self, contextId, nonceKey, event, symbol, success, ex):
         symbolData = self._contextGetSymbolData(contextId, event, symbol)
