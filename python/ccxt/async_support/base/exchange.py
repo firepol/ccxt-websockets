@@ -632,8 +632,10 @@ class Exchange(BaseExchange, EventEmitter):
                 self._contextResetSymbol(conxid, event, symbol)
             if (action['action'] == 'reconnect'):
                 conx = self._contextGetConnection(conxid)
-                if (conx is not None):
+                try:
                     conx.close()
+                except AttributeError:
+                    pass
                 if not delayed:
                     if (action['reset-context'] == 'onreconnect'):
                         # self._websocket_reset_context(conxid, conxtpl)
@@ -641,19 +643,21 @@ class Exchange(BaseExchange, EventEmitter):
                 self._contextSetConnectionInfo(conxid, await self._websocket_initialize(conx_config, conxid))
             elif (action['action'] == 'connect'):
                 conx = self._contextGetConnection(conxid)
-                if (conx is not None):
+                try:
                     if (not conx.isActive()):
                         conx.close()
                         self._websocket_reset_context(conxid, conxtpl)
                         self._contextSetConnectionInfo(conxid, await self._websocket_initialize(conx_config, conxid))
-                else:
+                except AttributeError:
                     self._websocket_reset_context(conxid, conxtpl)
                     self._contextSetConnectionInfo(conxid, await self._websocket_initialize(conx_config, conxid))
             elif (action['action'] == 'disconnect'):
                 conx = self._contextGetConnection(conxid)
-                if (conx is not None):
+                try:
                     conx.close()
                     self._websocket_reset_context(conxid, conxtpl)
+                except AttributeError:
+                    pass
                 if delayed:
                     # if not subscription in conxid remove from delayed
                     if conxid in list(self.websocketDelayedConnections.keys()):
@@ -712,7 +716,10 @@ class Exchange(BaseExchange, EventEmitter):
 
     def websocketClose(self, conxid='default'):
         websocket_conx_info = self._contextGetConnectionInfo(conxid)
-        websocket_conx_info['conx'].close()
+        try:
+            websocket_conx_info['conx'].close()
+        except AttributeError:
+            return
 
     def websocketCloseAll(self):
         for c in self.websocketContexts:

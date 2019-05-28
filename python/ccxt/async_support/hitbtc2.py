@@ -1416,7 +1416,7 @@ class hitbtc2 (hitbtc):
 
     def _websocket_is_zero_size(self, size):
         # hitbtc - their doc is really bad, how many 0 will it have?
-        return size == '0' or size == '0.0' or size == '0.00' or size == '0.000' or size == '0.0000'
+        return size == '0' or size == '0.0' or size == '0.00' or size == '0.000' or size == '0.0000' or size == '0.00000'
 
     def _websocket_update_order(self, items, updates):
         for j in range(0, len(updates)):

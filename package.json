@@ -48,10 +48,12 @@
   },
   "types": "./ccxt.d.ts",
   "dependencies": {
+    "bufferutil": "^4.0.1",
     "crypto-js": "3.1.9-1",
     "fetch-ponyfill": "4.1.0",
     "opencollective": "1.0.3",
     "pako": "^1.0.6",
+    "utf-8-validate": "^5.0.2",
     "ws": "^5.1.1"
   },
   "devDependencies": {

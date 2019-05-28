@@ -1251,15 +1251,15 @@ class poloniex (Exchange):
         channelId = msg[0]
         if channelId == 1000:
             # account notification(beta)
-            print('notification')
+            # print('notification')
         elif channelId == 1002:
             # ticker data
-            print('ticker')
+            # print('ticker')
         elif channelId == 1003:
             # 24 hour exchange volume
-            print('24 hour exchange volume')
+            # print('24 hour exchange volume')
         elif channelId == 1010:
-            print(self.id + '._websocketOnMessage() heartbeat ' + data)
+            # print(self.id + '._websocketOnMessage() heartbeat ' + data)
         else:
             # if channelId is not one of the above, check if it is a marketId
             symbolsIds = self._contextGet(contextId, 'symbolids')
@@ -1363,7 +1363,7 @@ class poloniex (Exchange):
                             trade = self._websocket_parse_trade(order, symbol)
                             self.emit('trade', symbol, trade)
                         else:
-                            print(self.id + '._websocketHandleOb() skipping trade.')
+                            # print(self.id + '._websocketHandleOb() skipping trade.')
                         continue
                     else:
                         # unknown value
