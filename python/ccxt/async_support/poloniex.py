@@ -1249,30 +1249,18 @@ class poloniex (Exchange):
     def _websocket_on_message(self, contextId, data):
         msg = json.loads(data)
         channelId = msg[0]
-        if channelId == 1000:
-            # account notification(beta)
-            # print('notification')
-        elif channelId == 1002:
-            # ticker data
-            # print('ticker')
-        elif channelId == 1003:
-            # 24 hour exchange volume
-            # print('24 hour exchange volume')
-        elif channelId == 1010:
-            # print(self.id + '._websocketOnMessage() heartbeat ' + data)
+        # if channelId is not one of the above, check if it is a marketId
+        symbolsIds = self._contextGet(contextId, 'symbolids')
+        channelIdStr = str(channelId)
+        if channelIdStr in symbolsIds:
+            # both 'ob' and 'trade' are handled by the same execution branch
+            # as on poloniex they are part of the same endpoint
+            symbol = symbolsIds[channelIdStr]
+            self._websocket_handle_ob(contextId, symbol, msg)
         else:
-            # if channelId is not one of the above, check if it is a marketId
-            symbolsIds = self._contextGet(contextId, 'symbolids')
-            channelIdStr = str(channelId)
-            if channelIdStr in symbolsIds:
-                # both 'ob' and 'trade' are handled by the same execution branch
-                # as on poloniex they are part of the same endpoint
-                symbol = symbolsIds[channelIdStr]
-                self._websocket_handle_ob(contextId, symbol, msg)
-            else:
-                # Some error occured
-                self.emit('err', ExchangeError(self.id + '._websocketOnMessage() failed to get symbol for channelId: ' + channelIdStr))
-                self.websocketClose(contextId)
+            # Some error occured
+            self.emit('err', ExchangeError(self.id + '._websocketOnMessage() failed to get symbol for channelId: ' + channelIdStr))
+            self.websocketClose(contextId)
 
     def _websocket_parse_trade(self, trade, symbol):
         # Websocket trade format different than REST trade format
@@ -1362,8 +1350,6 @@ class poloniex (Exchange):
                         if self._contextIsSubscribed(contextId, 'trade', symbol):
                             trade = self._websocket_parse_trade(order, symbol)
                             self.emit('trade', symbol, trade)
-                        else:
-                            # print(self.id + '._websocketHandleOb() skipping trade.')
                         continue
                     else:
                         # unknown value

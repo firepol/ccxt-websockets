@@ -584,6 +584,13 @@ class hitbtc2 (hitbtc):
                             'id': '{id}',
                         },
                     },
+                    'od': {
+                        'conx-tpl': 'default',
+                        'conx-param': {
+                            'url': '{baseurl}',
+                            'id': '{id}',
+                        },
+                    },
                 },
             },
         })
@@ -1398,6 +1405,33 @@ class hitbtc2 (hitbtc):
                 # TODO:update orderbook
                 # console.log('update orderbook>>>', orderbook)
                 self._websocket_handle_update_orderbook(contextId, msg)
+            elif method == 'activeOrders':
+                # console.log('activeorders',msg)
+                self._websocket_handle_active_orders(contextId, msg)
+            elif method == 'report':
+                self._websocket_handle_report(contextId, msg)
+
+    def _websocket_handle_active_orders(self, contextId, data):
+        oddata = self.safe_value(data, 'params')
+        od = self._contextGetSymbolData(contextId, 'od', 'all')
+        if od['od'] is None and len(oddata) > 0:
+            od['od'] = {}
+        for j in range(0, len(oddata)):
+            order = self.parse_order(oddata[j])
+            orderid = order['id']
+            od['od'][orderid] = order
+        od['rawData'] = oddata
+        self._contextSetSymbolData(contextId, 'od', 'all', od)
+        self.emit('od', self._cloneOrders(od['od']))
+
+    def _websocket_handle_report(self, contextId, data):
+        oddata = self.safe_value(data, 'params')
+        od = self._contextGetSymbolData(contextId, 'od', 'all')
+        order = self.parse_order(oddata)
+        orderid = order['id']
+        od['od'][orderid] = order
+        self._contextSetSymbolData(contextId, 'od', 'all', od)
+        self.emit('od', self._cloneOrders(od['od']))
 
     def _websocket_handle_snapshot_orderbook(self, contextId, data):
         timestamp = None
@@ -1465,25 +1499,44 @@ class hitbtc2 (hitbtc):
         self.emit('ob', symbol, self._cloneOrderBook(symbolData['ob'], symbolData['limit']))
 
     def _websocket_subscribe(self, contextId, event, symbol, nonce, params={}):
-        if event != 'ob':
+        if event != 'ob' and event != 'od':
             raise NotSupported('subscribe ' + event + '(' + symbol + ') not supported for exchange ' + self.id)
-        data = self._contextGetSymbolData(contextId, event, symbol)
-        # depth from 0 to 5
-        # see https://github.com/huobiapi/API_Docs/wiki/WS_api_reference#%E8%AE%A2%E9%98%85-market-depth-%E6%95%B0%E6%8D%AE-marketsymboldepthtype
-        data['depth'] = self.safe_integer(params, 'depth', '50')
-        data['limit'] = self.safe_integer(params, 'limit', 200)
-        # it is not limit
-        # data['limit'] = params['depth']
-        self._contextSetSymbolData(contextId, event, symbol, data)
-        rawsymbol = self.market_id(symbol)
-        sendJson = {
-            'method': 'subscribeOrderbook',
-            'params': {
-                'symbol': rawsymbol,
-            },
-            'id': rawsymbol,
-        }
-        self.websocketSendJson(sendJson)
+        if event == 'ob':
+            data = self._contextGetSymbolData(contextId, event, symbol)
+            # depth from 0 to 5
+            # see https://github.com/huobiapi/API_Docs/wiki/WS_api_reference#%E8%AE%A2%E9%98%85-market-depth-%E6%95%B0%E6%8D%AE-marketsymboldepthtype
+            data['depth'] = self.safe_integer(params, 'depth', '50')
+            data['limit'] = self.safe_integer(params, 'limit', 200)
+            # it is not limit
+            # data['limit'] = params['depth']
+            self._contextSetSymbolData(contextId, event, symbol, data)
+            rawsymbol = self.market_id(symbol)
+            sendJson = {
+                'method': 'subscribeOrderbook',
+                'params': {
+                    'symbol': rawsymbol,
+                },
+                'id': rawsymbol,
+            }
+            self.websocketSendJson(sendJson)
+        if event == 'od':  # Connect using ApiKey/Secret to get order report
+            data = self._contextGetSymbolData(contextId, event, 'all')
+            data['od'] = None
+            self._contextSetSymbolData(contextId, event, 'all', data)
+            sendLoginJson = {
+                'method': 'login',
+                'params': {
+                    'algo': 'BASIC',
+                    'pKey': self.apiKey,
+                    'sKey': self.secret,
+                },
+            }
+            self.websocketSendJson(sendLoginJson)
+            sendJson = {
+                'method': 'subscribeReports',
+                'params': {},
+            }
+            self.websocketSendJson(sendJson)
         nonceStr = str(nonce)
         self.emit(nonceStr, True)
 
@@ -1507,4 +1560,10 @@ class hitbtc2 (hitbtc):
         data = self._contextGetSymbolData(contextId, 'ob', symbol)
         if 'ob' in data and data['ob'] is not None:
             return self._cloneOrderBook(data['ob'], limit)
+        return None
+
+    def _get_current_orders(self, contextId, orderid):
+        data = self._contextGetSymbolData(contextId, 'od', 'all')
+        if 'od' in data and data['od'] is not None:
+            return self._cloneOrders(data['od'], orderid)
         return None

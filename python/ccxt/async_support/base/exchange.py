@@ -825,6 +825,18 @@ class Exchange(BaseExchange, EventEmitter):
             ret['asks'] = ob['asks'][:limit]
         return ret
 
+    def _cloneOrders(self, od, orderid=None):
+        ret = {
+            'timestamp': od['timestamp'],
+            'datetime': od['datetime'],
+            'nonce': od['nonce']
+        }
+        if orderid is None:
+            ret['orders'] = od
+        else:
+            ret['orders'] = od[orderid]
+        return ret
+
     def _executeAndCallback(self, contextId, method, params, callback, context={}, this_param=None):
         this_param = this_param if (this_param is not None) else self
         eself = self
@@ -866,6 +878,24 @@ class Exchange(BaseExchange, EventEmitter):
 
         self.on('ob', wait4orderbook)
         self.timeout_future(future, 'websocket_fetch_order_book')
+        return await future
+
+    async def websocket_orders(self, orderid=None):
+        if not self._websocketValidEvent('od'):
+            raise ExchangeError('Not valid event od for exchange ' + self.id)
+        conxid = await self._websocket_ensure_conx_active('od', 'all', True)
+        od = self._get_current_orders(conxid, orderid)
+        if (od is not None):
+            return od
+
+        future = asyncio.Future()
+
+        def wait4orders(od):
+            self.remove_listener('od', wait4orders)
+            future.done() or future.set_result(self._get_current_orders(conxid, orderid))
+
+        self.on('od', wait4orders)
+        self.timeout_future(future, 'websocket_orders')
         return await future
 
     async def websocket_subscribe(self, event, symbol, params={}):

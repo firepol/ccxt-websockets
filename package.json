@@ -54,7 +54,7 @@
     "opencollective": "1.0.3",
     "pako": "^1.0.6",
     "utf-8-validate": "^5.0.2",
-    "ws": "^5.1.1"
+    "ws": "^5.2.2"
   },
   "devDependencies": {
     "ansicolor": "1.1.81",
