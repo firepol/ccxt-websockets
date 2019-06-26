@@ -1427,9 +1427,12 @@ class hitbtc2 (hitbtc):
     def _websocket_handle_report(self, contextId, data):
         oddata = self.safe_value(data, 'params')
         od = self._contextGetSymbolData(contextId, 'od', 'all')
+        # status, new, canceled, expired, suspended, trade, replaced
         order = self.parse_order(oddata)
         orderid = order['id']
         od['od'][orderid] = order
+        if oddata['reportType'] == 'replaced':
+            del od['od'][oddata['originalRequestClientOrderId']]
         self._contextSetSymbolData(contextId, 'od', 'all', od)
         self.emit('od', self._cloneOrders(od['od']))
 
