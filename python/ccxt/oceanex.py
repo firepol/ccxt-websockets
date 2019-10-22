@@ -135,8 +135,8 @@ class oceanex (Exchange):
             id = self.safe_value(market, 'id')
             name = self.safe_value(market, 'name')
             baseId, quoteId = name.split('/')
-            base = self.common_currency_code(baseId)
-            quote = self.common_currency_code(quoteId)
+            base = self.safe_currency_code(baseId)
+            quote = self.safe_currency_code(quoteId)
             baseId = baseId.lower()
             quoteId = quoteId.lower()
             symbol = base + '/' + quote
@@ -248,9 +248,7 @@ class oceanex (Exchange):
         #         }
         #
         ticker = self.safe_value(data, 'ticker', {})
-        timestamp = self.safe_integer(data, 'at')
-        if timestamp is not None:
-            timestamp = timestamp * 1000
+        timestamp = self.safe_timestamp(data, 'at')
         return {
             'symbol': market['symbol'],
             'timestamp': timestamp,
@@ -303,9 +301,7 @@ class oceanex (Exchange):
         #     }
         #
         orderbook = self.safe_value(response, 'data', {})
-        timestamp = self.safe_integer(orderbook, 'timestamp')
-        if timestamp is not None:
-            timestamp = timestamp * 1000
+        timestamp = self.safe_timestamp(orderbook, 'timestamp')
         return self.parse_order_book(orderbook, timestamp)
 
     def fetch_order_books(self, symbols=None, limit=None, params={}):
@@ -349,9 +345,7 @@ class oceanex (Exchange):
             marketId = self.safe_string(orderbook, 'market')
             market = self.markets_by_id[marketId]
             symbol = market['symbol']
-            timestamp = self.safe_integer(orderbook, 'timestamp')
-            if timestamp is not None:
-                timestamp = timestamp * 1000
+            timestamp = self.safe_timestamp(orderbook, 'timestamp')
             result[symbol] = self.parse_order_book(orderbook, timestamp)
         return result
 
@@ -384,11 +378,9 @@ class oceanex (Exchange):
         if symbol is None:
             if market is not None:
                 symbol = market['symbol']
-        timestamp = self.safe_integer(trade, 'created_on')
+        timestamp = self.safe_timestamp(trade, 'created_on')
         if timestamp is None:
             timestamp = self.parse8601(self.safe_string(trade, 'created_at'))
-        else:
-            timestamp = timestamp * 1000
         return {
             'info': trade,
             'timestamp': timestamp,
@@ -410,8 +402,7 @@ class oceanex (Exchange):
         #
         #     {"code":0,"message":"Operation successful","data":1559433420}
         #
-        timestamp = self.safe_integer(response, 'data')
-        return timestamp * 1000
+        return self.safe_timestamp(response, 'data')
 
     def fetch_all_trading_fees(self, params={}):
         response = self.publicGetFeesTrading(params)
@@ -446,11 +437,7 @@ class oceanex (Exchange):
         for i in range(0, len(balances)):
             balance = balances[i]
             currencyId = self.safe_value(balance, 'currency')
-            code = currencyId
-            if currencyId in self.currencies_by_id:
-                code = self.currencies_by_id[currencyId]['code']
-            else:
-                code = self.common_currency_code(currencyId.upper())
+            code = self.safe_currency_code(currencyId)
             account = self.account()
             account['free'] = self.safe_float(balance, 'balance')
             account['used'] = self.safe_float(balance, 'locked')
@@ -480,7 +467,8 @@ class oceanex (Exchange):
         request = {'ids': [id]}
         response = self.privateGetOrders(self.extend(request, params))
         data = self.safe_value(response, 'data')
-        if data is None or len(data) == 0:
+        dataLength = len(data)
+        if data is None or dataLength == 0:
             raise OrderNotFound(self.id + ' could not found matching order')
         return self.parse_order(data[0], market)
 
@@ -533,11 +521,9 @@ class oceanex (Exchange):
         if symbol is None:
             if market is not None:
                 symbol = market['symbol']
-        timestamp = self.safe_integer(order, 'created_on')
+        timestamp = self.safe_timestamp(order, 'created_on')
         if timestamp is None:
             timestamp = self.parse8601(self.safe_string(order, 'created_at'))
-        else:
-            timestamp = timestamp * 1000
         return {
             'info': order,
             'id': self.safe_string(order, 'id'),
@@ -622,7 +608,7 @@ class oceanex (Exchange):
         headers = {'Content-Type': 'application/json'}
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
 
-    def handle_errors(self, code, reason, url, method, headers, body, response):
+    def handle_errors(self, code, reason, url, method, headers, body, response, requestHeaders, requestBody):
         #
         #     {"code":1011,"message":"This IP '5.228.233.138' is not allowed","data":{}}
         #

@@ -6,6 +6,7 @@
 from ccxt.async_support.base.exchange import Exchange
 import hashlib
 import math
+import json
 from ccxt.base.errors import ExchangeError
 from ccxt.base.errors import AuthenticationError
 from ccxt.base.errors import AccountSuspended
@@ -15,6 +16,7 @@ from ccxt.base.errors import InsufficientFunds
 from ccxt.base.errors import InvalidOrder
 from ccxt.base.errors import OrderNotFound
 from ccxt.base.errors import NotSupported
+from ccxt.base.errors import NetworkError
 from ccxt.base.errors import DDoSProtection
 from ccxt.base.errors import ExchangeNotAvailable
 from ccxt.base.errors import InvalidNonce
@@ -53,10 +55,11 @@ class kucoin (Exchange):
                 'fetchAccounts': True,
                 'fetchFundingFee': True,
                 'fetchOHLCV': True,
+                'fetchLedger': True,
             },
             'urls': {
                 'logo': 'https://user-images.githubusercontent.com/1294454/57369448-3cc3aa80-7196-11e9-883e-5ebeb35e4f57.jpg',
-                'referral': 'https://www.kucoin.com/ucenter/signup?rcode=E5wkqe',
+                'referral': 'https://www.kucoin.com/?rcode=E5wkqe',
                 'api': {
                     'public': 'https://openapi-v2.kucoin.com',
                     'private': 'https://openapi-v2.kucoin.com',
@@ -153,6 +156,7 @@ class kucoin (Exchange):
                 '500': ExchangeError,
                 '503': ExchangeNotAvailable,
                 '200004': InsufficientFunds,
+                '230003': InsufficientFunds,  # {"code":"230003","msg":"Balance insufficientnot "}
                 '260100': InsufficientFunds,  # {"code":"260100","msg":"account.noBalance"}
                 '300000': InvalidOrder,
                 '400001': AuthenticationError,
@@ -163,8 +167,9 @@ class kucoin (Exchange):
                 '400006': AuthenticationError,
                 '400007': AuthenticationError,
                 '400008': NotSupported,
-                '400100': ArgumentsRequired,
+                '400100': BadRequest,
                 '411100': AccountSuspended,
+                '415000': BadRequest,  # {"code":"415000","msg":"Unsupported Media Type"}
                 '500000': ExchangeError,
             },
             'fees': {
@@ -183,10 +188,51 @@ class kucoin (Exchange):
             },
             'commonCurrencies': {
                 'HOT': 'HOTNOW',
+                'EDGE': 'DADI',  # https://github.com/ccxt/ccxt/issues/5756
             },
             'options': {
                 'version': 'v1',
                 'symbolSeparator': '-',
+                'fetchMyTradesMethod': 'private_get_fills',
+            },
+            'wsconf': {
+                'conx-tpls': {
+                    'default': {
+                        'type': 'ws',
+                        'baseurl': 'wss://push1-v2.kucoin.com/endpoint',
+                        'wait4readyEvent': 'welcome',
+                    },
+                },
+                'methodmap': {
+                    '_websocketTimeoutSendPing': '_websocketTimeoutSendPing',
+                    '_websocketTimeoutPong': '_websocketTimeoutPong',
+                    'fetchOrderBook': 'fetchOrderBook',
+                    '_websocketProcessFirstOrderBook': '_websocketProcessFirstOrderBook',
+                    '_websocketRequestFirstOrderBook': '_websocketRequestFirstOrderBook',
+                },
+                'events': {
+                    'ob': {
+                        'conx-tpl': 'default',
+                        'conx-param': {
+                            'url': '{baseurl}',
+                            'id': '{id}',
+                        },
+                    },
+                    'trade': {
+                        'conx-tpl': 'default',
+                        'conx-param': {
+                            'url': '{baseurl}',
+                            'id': '{id}',
+                        },
+                    },
+                    'ticker': {
+                        'conx-tpl': 'default',
+                        'conx-param': {
+                            'url': '{baseurl}',
+                            'id': '{id}',
+                        },
+                    },
+                },
             },
         })
 
@@ -220,13 +266,13 @@ class kucoin (Exchange):
         result = []
         for i in range(0, len(data)):
             market = data[i]
-            id = market['name']
-            baseId = market['baseCurrency']
-            quoteId = market['quoteCurrency']
-            base = self.common_currency_code(baseId)
-            quote = self.common_currency_code(quoteId)
+            id = self.safe_string(market, 'symbol')
+            baseId = self.safe_string(market, 'baseCurrency')
+            quoteId = self.safe_string(market, 'quoteCurrency')
+            base = self.safe_currency_code(baseId)
+            quote = self.safe_currency_code(quoteId)
             symbol = base + '/' + quote
-            active = market['enableTrading']
+            active = self.safe_value(market, 'enableTrading')
             baseMaxSize = self.safe_float(market, 'baseMaxSize')
             baseMinSize = self.safe_float(market, 'baseMinSize')
             quoteMaxSize = self.safe_float(market, 'quoteMaxSize')
@@ -267,18 +313,20 @@ class kucoin (Exchange):
     async def fetch_currencies(self, params={}):
         response = await self.publicGetCurrencies(params)
         #
-        # {precision: 10,
-        #   name: 'KCS',
-        #   fullName: 'KCS shares',
-        #   currency: 'KCS'}
+        #     {
+        #         precision: 10,
+        #         name: 'KCS',
+        #         fullName: 'KCS shares',
+        #         currency: 'KCS'
+        #     }
         #
         responseData = response['data']
         result = {}
         for i in range(0, len(responseData)):
             entry = responseData[i]
             id = self.safe_string(entry, 'name')
-            name = entry['fullName']
-            code = self.common_currency_code(id)
+            name = self.safe_string(entry, 'fullName')
+            code = self.safe_currency_code(id)
             precision = self.safe_integer(entry, 'precision')
             result[code] = {
                 'id': id,
@@ -313,7 +361,7 @@ class kucoin (Exchange):
             account = data[i]
             accountId = self.safe_string(account, 'id')
             currencyId = self.safe_string(account, 'currency')
-            code = self.common_currency_code(currencyId)
+            code = self.safe_currency_code(currencyId)
             type = self.safe_string(account, 'type')  # main or trade
             result.append({
                 'id': accountId,
@@ -365,8 +413,8 @@ class kucoin (Exchange):
                 symbol = market['symbol']
             else:
                 baseId, quoteId = marketId.split('-')
-                base = self.common_currency_code(baseId)
-                quote = self.common_currency_code(quoteId)
+                base = self.safe_currency_code(baseId)
+                quote = self.safe_currency_code(quoteId)
                 symbol = base + '/' + quote
         if symbol is None:
             if market is not None:
@@ -480,13 +528,25 @@ class kucoin (Exchange):
         marketId = market['id']
         request = {
             'symbol': marketId,
-            'endAt': self.seconds(),  # required param
             'type': self.timeframes[timeframe],
         }
+        duration = self.parse_timeframe(timeframe) * 1000
+        endAt = self.milliseconds()  # required param
         if since is not None:
-            request['startAt'] = int(math.floor(since / 1000))
+            request['startAt'] = int(int(math.floor(since / 1000)))
+            if limit is None:
+                # https://docs.kucoin.com/#get-klines
+                # https://docs.kucoin.com/#details
+                # For each query, the system would return at most 1500 pieces of data.
+                # To obtain more data, please page the data by time.
+                limit = self.safe_integer(self.options, 'fetchOHLCVLimit', 1500)
+            endAt = self.sum(since, limit * duration)
+        elif limit is not None:
+            since = endAt - limit * duration
+            request['startAt'] = int(int(math.floor(since / 1000)))
+        request['endAt'] = int(int(math.floor(endAt / 1000)))
         response = await self.publicGetMarketCandles(self.extend(request, params))
-        responseData = response['data']
+        responseData = self.safe_value(response, 'data', [])
         return self.parse_ohlcvs(responseData, market, timeframe, since, limit)
 
     async def create_deposit_address(self, code, params={}):
@@ -499,7 +559,8 @@ class kucoin (Exchange):
         data = self.safe_value(response, 'data', {})
         address = self.safe_string(data, 'address')
         # BCH/BSV is returned with a "bitcoincash:" prefix, which we cut off here and only keep the address
-        address = address.replace('bitcoincash:', '')
+        if address is not None:
+            address = address.replace('bitcoincash:', '')
         tag = self.safe_string(data, 'memo')
         self.check_address(address)
         return {
@@ -702,8 +763,8 @@ class kucoin (Exchange):
                 symbol = market['symbol']
             else:
                 baseId, quoteId = marketId.split('-')
-                base = self.common_currency_code(baseId)
-                quote = self.common_currency_code(quoteId)
+                base = self.safe_currency_code(baseId)
+                quote = self.safe_currency_code(quoteId)
                 symbol = base + '/' + quote
             market = self.safe_value(self.markets_by_id, marketId)
         if symbol is None:
@@ -716,7 +777,7 @@ class kucoin (Exchange):
         price = self.safe_float(order, 'price')
         side = self.safe_string(order, 'side')
         feeCurrencyId = self.safe_string(order, 'feeCurrency')
-        feeCurrency = self.common_currency_code(feeCurrencyId)
+        feeCurrency = self.safe_currency_code(feeCurrencyId)
         feeCost = self.safe_float(order, 'fee')
         amount = self.safe_float(order, 'size')
         filled = self.safe_float(order, 'dealSize')
@@ -759,16 +820,26 @@ class kucoin (Exchange):
             request['symbol'] = market['id']
         if limit is not None:
             request['pageSize'] = limit
-        method = 'privateGetFills'
-        if since is not None:
-            # if since is earlier than 2019-02-18T00:00:00Z
-            if since < 1550448000000:
-                request['startAt'] = int(since / 1000)
-                # despite that self endpoint is called `HistOrders`
-                # it returns historical trades instead of orders
-                method = 'privateGetHistOrders'
-            else:
+        method = self.options['fetchMyTradesMethod']
+        parseResponseData = False
+        if method == 'private_get_fills':
+            # does not return trades earlier than 2019-02-18T00:00:00Z
+            if since is not None:
+                # only returns trades up to one week after the since param
                 request['startAt'] = since
+        elif method == 'private_get_limit_fills':
+            # does not return trades earlier than 2019-02-18T00:00:00Z
+            # takes no params
+            # only returns first 1000 trades(not only "in the last 24 hours" as stated in the docs)
+            parseResponseData = True
+        elif method == 'private_get_hist_orders':
+            # despite that self endpoint is called `HistOrders`
+            # it returns historical trades instead of orders
+            # returns trades earlier than 2019-02-18T00:00:00Z only
+            if since is not None:
+                request['startAt'] = int(since / 1000)
+        else:
+            raise ExchangeError(self.id + ' invalid fetchClosedOrder method')
         response = await getattr(self, method)(self.extend(request, params))
         #
         #     {
@@ -811,7 +882,11 @@ class kucoin (Exchange):
         #     }
         #
         data = self.safe_value(response, 'data', {})
-        trades = self.safe_value(data, 'items', [])
+        trades = None
+        if parseResponseData:
+            trades = data
+        else:
+            trades = self.safe_value(data, 'items', [])
         return self.parse_trades(trades, market, since, limit)
 
     async def fetch_trades(self, symbol, since=None, limit=None, params={}):
@@ -875,6 +950,24 @@ class kucoin (Exchange):
         #         "createdAt":1547026472000
         #     }
         #
+        # fetchMyTrades v2 alternative format since 2019-05-21 https://github.com/ccxt/ccxt/pull/5162
+        #
+        #     {
+        #         symbol: "OPEN-BTC",
+        #         forceTaker:  False,
+        #         orderId: "5ce36420054b4663b1fff2c9",
+        #         fee: "0",
+        #         feeCurrency: "",
+        #         type: "",
+        #         feeRate: "0",
+        #         createdAt: 1558417615000,
+        #         size: "12.8206",
+        #         stop: "",
+        #         price: "0",
+        #         funds: "0",
+        #         tradeId: "5ce390cf6e0db23b861c6e80"
+        #     }
+        #
         # fetchMyTrades(private) v1(historical)
         #
         #     {
@@ -896,8 +989,8 @@ class kucoin (Exchange):
                 symbol = market['symbol']
             else:
                 baseId, quoteId = marketId.split('-')
-                base = self.common_currency_code(baseId)
-                quote = self.common_currency_code(quoteId)
+                base = self.safe_currency_code(baseId)
+                quote = self.safe_currency_code(quoteId)
                 symbol = base + '/' + quote
         if symbol is None:
             if market is not None:
@@ -914,7 +1007,7 @@ class kucoin (Exchange):
         else:
             timestamp = self.safe_integer(trade, 'createdAt')
             # if it's a historical v1 trade, the exchange returns timestamp in seconds
-            if takerOrMaker is None and timestamp is not None:
+            if ('dealValue' in list(trade.keys())) and(timestamp is not None):
                 timestamp = timestamp * 1000
         price = self.safe_float_2(trade, 'price', 'dealPrice')
         side = self.safe_string(trade, 'side')
@@ -922,7 +1015,7 @@ class kucoin (Exchange):
         feeCost = self.safe_float(trade, 'fee')
         if feeCost is not None:
             feeCurrencyId = self.safe_string(trade, 'feeCurrency')
-            feeCurrency = self.common_currency_code(feeCurrencyId)
+            feeCurrency = self.safe_currency_code(feeCurrencyId)
             if feeCurrency is None:
                 if market is not None:
                     feeCurrency = market['quote'] if (side == 'sell') else market['base']
@@ -966,10 +1059,18 @@ class kucoin (Exchange):
             request['memo'] = tag
         response = await self.privatePostWithdrawals(self.extend(request, params))
         #
-        # {"withdrawalId": "5bffb63303aa675e8bbe18f9"}
+        # https://github.com/ccxt/ccxt/issues/5558
         #
+        #     {
+        #         "code":  200000,
+        #         "data": {
+        #             "withdrawalId":  "abcdefghijklmnopqrstuvwxyz"
+        #         }
+        #     }
+        #
+        data = self.safe_value(response, 'data', {})
         return {
-            'id': self.safe_string(response, 'withdrawalId'),
+            'id': self.safe_string(data, 'withdrawalId'),
             'info': response,
         }
 
@@ -1014,13 +1115,8 @@ class kucoin (Exchange):
         #         "updatedAt": 1546504603000
         #     }
         #
-        code = None
         currencyId = self.safe_string(transaction, 'currency')
-        currency = self.safe_value(self.currencies_by_id, currencyId)
-        if currency is not None:
-            code = currency['code']
-        else:
-            code = self.common_currency_code(currencyId)
+        code = self.safe_currency_code(currencyId, currency)
         address = self.safe_string(transaction, 'address')
         amount = self.safe_float(transaction, 'amount')
         txid = self.safe_string(transaction, 'walletTxId')
@@ -1198,25 +1294,164 @@ class kucoin (Exchange):
             'type': 'trade',
         }
         response = await self.privateGetAccounts(self.extend(request, params))
-        responseData = response['data']
-        result = {'info': responseData}
-        for i in range(0, len(responseData)):
-            entry = responseData[i]
-            currencyId = entry['currency']
-            code = self.common_currency_code(currencyId)
-            account = {}
-            account['total'] = self.safe_float(entry, 'balance', 0)
-            account['free'] = self.safe_float(entry, 'available', 0)
-            account['used'] = self.safe_float(entry, 'holds', 0)
+        #
+        #     {
+        #         "code":"200000",
+        #         "data":[
+        #             {"balance":"0.00009788","available":"0.00009788","holds":"0","currency":"BTC","id":"5c6a4fd399a1d81c4f9cc4d0","type":"trade"},
+        #             {"balance":"3.41060034","available":"3.41060034","holds":"0","currency":"SOUL","id":"5c6a4d5d99a1d8182d37046d","type":"trade"},
+        #             {"balance":"0.01562641","available":"0.01562641","holds":"0","currency":"NEO","id":"5c6a4f1199a1d8165a99edb1","type":"trade"},
+        #         ]
+        #     }
+        # /
+        data = self.safe_value(response, 'data', [])
+        result = {'info': response}
+        for i in range(0, len(data)):
+            balance = data[i]
+            currencyId = self.safe_string(balance, 'currency')
+            code = self.safe_currency_code(currencyId)
+            account = self.account()
+            account['total'] = self.safe_float(balance, 'balance')
+            account['free'] = self.safe_float(balance, 'available')
+            account['used'] = self.safe_float(balance, 'holds')
             result[code] = account
         return self.parse_balance(result)
+
+    async def fetch_ledger(self, code=None, since=None, limit=None, params={}):
+        if code is None:
+            raise ArgumentsRequired(self.id + ' fetchLedger requires a code param')
+        await self.load_markets()
+        await self.loadAccounts()
+        currency = self.currency(code)
+        accountId = self.safe_string(params, 'accountId')
+        if accountId is None:
+            for i in range(0, len(self.accounts)):
+                account = self.accounts[i]
+                if account['currency'] == code and account['type'] == 'main':
+                    accountId = account['id']
+                    break
+        if accountId is None:
+            raise ExchangeError(self.id + ' ' + code + 'main account is not loaded in loadAccounts')
+        request = {
+            'accountId': accountId,
+        }
+        if since is not None:
+            request['startAt'] = int(math.floor(since / 1000))
+        response = await self.privateGetAccountsAccountIdLedgers(self.extend(request, params))
+        #
+        #     {
+        #         code: '200000',
+        #         data: {
+        #             totalNum: 1,
+        #             totalPage: 1,
+        #             pageSize: 50,
+        #             currentPage: 1,
+        #             items: [
+        #                 {
+        #                     createdAt: 1561897880000,
+        #                     amount: '0.0111123',
+        #                     bizType: 'Exchange',
+        #                     balance: '0.13224427',
+        #                     fee: '0.0000111',
+        #                     context: '{"symbol":"KCS-ETH","orderId":"5d18ab98c788c6426188296f","tradeId":"5d18ab9818996813f539a806"}',
+        #                     currency: 'ETH',
+        #                     direction: 'out'
+        #                 }
+        #             ]
+        #         }
+        #     }
+        #
+        items = response['data']['items']
+        return self.parse_ledger(items, currency, since, limit)
+
+    def parse_ledger_entry(self, item, currency=None):
+        #
+        # trade
+        #
+        #     {
+        #         createdAt: 1561897880000,
+        #         amount: '0.0111123',
+        #         bizType: 'Exchange',
+        #         balance: '0.13224427',
+        #         fee: '0.0000111',
+        #         context: '{"symbol":"KCS-ETH","orderId":"5d18ab98c788c6426188296f","tradeId":"5d18ab9818996813f539a806"}',
+        #         currency: 'ETH',
+        #         direction: 'out'
+        #     }
+        #
+        # withdrawal
+        #
+        #     {
+        #         createdAt: 1561900264000,
+        #         amount: '0.14333217',
+        #         bizType: 'Withdrawal',
+        #         balance: '0',
+        #         fee: '0.01',
+        #         context: '{"orderId":"5d18b4e687111437cf1c48b9","txId":"0x1d136ee065c5c4c5caa293faa90d43e213c953d7cdd575c89ed0b54eb87228b8"}',
+        #         currency: 'ETH',
+        #         direction: 'out'
+        #     }
+        #
+        currencyId = self.safe_string(item, 'currency')
+        code = self.safe_currency_code(currencyId, currency)
+        fee = {
+            'cost': self.safe_float(item, 'fee'),
+            'code': code,
+        }
+        amount = self.safe_float(item, 'amount')
+        after = self.safe_float(item, 'balance')
+        direction = self.safe_string(item, 'direction')
+        before = None
+        if after is not None and amount is not None:
+            difference = amount if (direction == 'out') else -amount
+            before = self.sum(after, difference)
+        timestamp = self.safe_integer(item, 'createdAt')
+        type = self.parse_ledger_entry_type(self.safe_string(item, 'bizType'))
+        contextString = self.safe_string(item, 'context')
+        id = None
+        referenceId = None
+        if self.is_json_encoded_object(contextString):
+            context = self.parse_json(contextString)
+            id = self.safe_string(context, 'orderId')
+            if type == 'trade':
+                referenceId = self.safe_string(context, 'tradeId')
+            elif type == 'transaction':
+                referenceId = self.safe_string(context, 'txId')
+        return {
+            'id': id,
+            'currency': code,
+            'account': None,
+            'referenceAccount': None,
+            'referenceId': referenceId,
+            'status': None,
+            'amount': amount,
+            'before': before,
+            'after': after,
+            'fee': fee,
+            'direction': direction,
+            'timestamp': timestamp,
+            'datetime': self.iso8601(timestamp),
+            'type': type,
+            'info': item,
+        }
+
+    def parse_ledger_entry_type(self, type):
+        types = {
+            'Exchange': 'trade',
+            'Withdrawal': 'transaction',
+            'Deposit': 'transaction',
+            'Transfer': 'transfer',
+        }
+        return self.safe_string(types, type, type)
 
     def sign(self, path, api='public', method='GET', params={}, headers=None, body=None):
         #
         # the v2 URL is https://openapi-v2.kucoin.com/api/v1/endpoint
         #                                †                 ↑
         #
-        endpoint = '/api/' + self.options['version'] + '/' + self.implode_params(path, params)
+        version = self.safe_string(params, 'version', self.options['version'])
+        params = self.omit(params, 'version')
+        endpoint = '/api/' + version + '/' + self.implode_params(path, params)
         query = self.omit(params, self.extract_params(path))
         endpart = ''
         headers = headers is not headers if None else {}
@@ -1241,7 +1476,7 @@ class kucoin (Exchange):
             headers['KC-API-SIGN'] = self.decode(signature)
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
 
-    def handle_errors(self, code, reason, url, method, headers, body, response):
+    def handle_errors(self, code, reason, url, method, headers, body, response, requestHeaders, requestBody):
         if not response:
             return
         #
@@ -1255,3 +1490,310 @@ class kucoin (Exchange):
         ExceptionClass = self.safe_value_2(self.exceptions, message, errorCode)
         if ExceptionClass is not None:
             raise ExceptionClass(self.id + ' ' + message)
+
+    async def _websocket_on_init(self, contextId, websocketConexConfig):
+        response = await self.publicPostBulletPublic()
+        server = response['data']['instanceServers'][0]
+        websocketConexConfig['baseurl'] = server['endpoint']
+        websocketConexConfig['url'] = server['endpoint'] + '?token=' + response['data']['token'] + '&acceptUserMessage=true'
+        websocketConexConfig['session'] = {
+            'pingInterval': server['pingInterval'],
+            'pingTimeout': server['pingTimeout'],
+            'token': response['data']['token'],
+        }
+        return websocketConexConfig
+
+    def _websocket_on_open(self, contextId, websocketOptions):
+        pingInterval = websocketOptions['session']['pingInterval']
+        pingTimeout = websocketOptions['session']['pingTimeout']
+        self._contextSet(contextId, 'pingInterval', pingInterval)
+        self._contextSet(contextId, 'pingTimeout', pingTimeout)
+        self._websocket_restart_ping_timer(contextId, pingInterval, pingTimeout)
+
+    def _websocket_on_close(self, contextId):
+        pingTimer = self._contextGet(contextId, 'pingTimer')
+        if pingTimer is not None:
+            self._cancelTimeout(pingTimer)
+        pingTimer = None
+        self._contextSet(contextId, 'timer', pingTimer)
+
+    def _websocket_restart_ping_timer(self, contextId, pingInterval, pingTimeout):
+        # reset ping timer
+        pingTimer = self._contextGet(contextId, 'pingTimer')
+        if pingTimer is not None:
+            self._cancelTimeout(pingTimer)
+        pingTimer = self._setTimeout(contextId, pingInterval, self._websocketMethodMap('_websocketTimeoutSendPing'), [contextId, pingTimeout])
+        self._contextSet(contextId, 'pingTimer', pingTimer)
+
+    def _websocket_timeout_send_ping(self, contextId, pingTimeout):
+        pingSeq = self.nonce()
+        pingSeqStr = str(pingSeq)
+        data = {
+            'id': pingSeqStr,
+            'type': 'ping',
+        }
+        self.websocketSendJson(data, contextId)
+        pongTimers = self._contextGet(contextId, 'pongtimers')
+        if pongTimers is None:
+            pongTimers = []
+        newPongTimer = self._setTimeout(contextId, pingTimeout, self._websocketMethodMap('_websocketTimeoutPong'), [contextId, pingSeq])
+        pongTimers[pingSeqStr] = newPongTimer
+        self._contextSet(contextId, 'pongtimers', pongTimers)
+
+    def _websocket_timeout_pong(self, contextId, sequence):
+        self.emit('err', ExchangeError(self.id + ' no pong received for ' + sequence), contextId)
+
+    def _websocket_on_message(self, contextId, data):
+        # print(data)
+        msg = json.loads(data)
+        msgType = self.safe_string(msg, 'type')
+        if msgType == 'message':
+            subject = self.safe_string(msg, 'subject')
+            if subject == 'trade.l3match':
+            # if subject.find('trade.l3') == 0:
+                self._websocket_handle_trade(contextId, msg)
+            elif subject == 'trade.l2update':
+                self._websocket_handle_ob(contextId, msg)
+            elif subject == 'trade.snapshot':
+                self._websocket_handle_ticker(contextId, msg)
+        elif msgType == 'pong':
+            pingSeq = self.safe_integer(msg, 'id')
+            pongTimers = self._contextGet(contextId, 'pongtimers')
+            if pingSeq in pongTimers:
+                timer = pongTimers[pingSeq]
+                self._cancelTimeout(timer)
+                self.omit(pongTimers, pingSeq)
+                self._contextSet(contextId, 'pongtimers', pongTimers)
+            pingInterval = self._contextGet(contextId, 'pingInterval')
+            pingTimeout = self._contextGet(contextId, 'pingTimeout')
+            self._websocket_restart_ping_timer(contextId, pingInterval, pingTimeout)
+        elif msgType == 'ack':
+            nonceId = self.safe_integer(msg, 'id')
+            nonceIdStr = str(nonceId)
+            self.emit(nonceIdStr, True)
+        elif msgType == 'error':
+            nonceId = self.safe_integer(msg, 'id', None)
+            code = self.safe_integer(msg, 'code')
+            error = self.safe_string(msg, 'data')
+            ex = NetworkError(error + '(' + code + ')')
+            if nonceId is not None:
+                nonceIdStr = str(nonceId)
+                self.emit(nonceIdStr, False, ex)
+            self.emit('err', ex, contextId)
+        elif msgType == 'welcome':
+            self.emit('welcome', True)
+
+    def _websocket_handle_trade(self, contextId, msg):
+        # check sequence
+        subject = self.safe_string(msg, 'subject')
+        data = self.safe_value(msg, 'data')
+        # symbolId = self.safe_string(data, 'symbol')
+        # symbol = self.find_symbol(symbolId)
+        # symbolData = self._contextGetSymbolData(contextId, 'trade', symbol)
+        # seqId = self.safe_integer(msg['data'], 'sequence')
+        # if 'trade_sequence_id' in symbolData:
+        #    lastSeqId = symbolData['trade_sequence_id']
+        #    lastSeqId = self.sum(lastSeqId, 1)
+        #    if lastSeqId != seqId:
+        #        self.emit('err', NetworkError('sequence id error in exchange: ' + self.id + '(' + str(lastSeqId) + '+1 !=' + str(seqId) + ')'), contextId)
+        #        return
+        #    }
+        #}
+        # symbolData['trade_sequence_id'] = seqId
+        # self._contextSetSymbolData(contextId, 'trade', symbol, symbolData)
+        if subject == 'trade.l3match':
+            # trade
+            if data['side'] == 'sell':
+                data['orderId'] = data['makerOrderId']
+            else:
+                data['orderId'] = data['takerOrderId']
+            trade = self.parse_trade(data)
+            trade['info'] = msg
+            trade['type'] = None
+            self.emit('trade', trade['symbol'], trade)
+
+    def _websocket_handle_ob(self, contextId, msg):
+        symbolId = self.safe_string(msg['data'], 'symbol')
+        symbol = self.find_symbol(symbolId)
+        seqIdStart = self.safe_integer(msg['data'], 'sequenceStart')
+        seqIdEnd = self.safe_integer(msg['data'], 'sequenceEnd')
+        symbolData = self._contextGetSymbolData(contextId, 'ob', symbol)
+        if 'ob_sequence_id' in symbolData:
+            lastSeqId = symbolData['ob_sequence_id']
+            lastSeqId = self.sum(lastSeqId, 1)
+            if lastSeqId != seqIdStart:
+                self.emit('err', NetworkError('sequence id error in exchange: ' + self.id + '(' + str(lastSeqId) + ' !=' + str(seqIdStart) + ')'), contextId)
+                return
+        symbolData['ob_sequence_id'] = seqIdEnd
+        self._contextSetSymbolData(contextId, 'ob', symbol, symbolData)
+        if 'ob' in symbolData:
+            # ob generated previously
+            data = msg['data']
+            obSequence = symbolData['lastSequence']
+            ob = symbolData['ob']
+            ob = self._websocket_process_order_book_delta(contextId, ob, msg, obSequence, True)
+            obSequence = self.safe_integer(data, 'sequenceEnd')
+            symbolData['lastSequence'] = obSequence
+            symbolData['ob'] = ob
+            self.emit('ob', symbol, self._cloneOrderBook(symbolData['ob'], symbolData['limit']))
+            self._contextSetSymbolData(contextId, 'ob', symbol, symbolData)
+        else:
+            deltas = []
+            if 'deltas' in symbolData:
+                deltas = symbolData['deltas']
+            deltasLength = len(deltas)
+            if (deltasLength == 0) or (deltasLength > 100):
+                deltas = []
+                deltas.append(msg)
+                symbolData['deltas'] = deltas
+                self._contextSetSymbolData(contextId, 'ob', symbol, symbolData)
+                self._websocket_request_first_order_book(contextId, symbol)
+            else:
+                deltas.append(msg)
+                symbolData['deltas'] = deltas
+                self._contextSetSymbolData(contextId, 'ob', symbol, symbolData)
+
+    def _websocket_handle_ticker(self, contextId, msg):
+        # check sequence
+        # subject = self.safe_string(msg, 'subject')
+        dataSeq = self.safe_value(msg, 'data')
+        data = self.safe_value(dataSeq, 'data')
+        # symbolId = self.safe_string(data, 'symbol')
+        # symbol = self.find_symbol(symbolId)
+        # symbolData = self._contextGetSymbolData(contextId, 'ticker', symbol)
+        # seqId = self.safe_integer(dataSeq, 'sequence')
+        # if 'ticker_sequence_id' in symbolData:
+        #    lastSeqId = symbolData['ticker_sequence_id']
+        #    lastSeqId = self.sum(lastSeqId, 1)
+        #    if lastSeqId != seqId:
+        #        self.emit('err', NetworkError('sequence id error in exchange: ' + self.id + '(' + str(lastSeqId) + ' !=' + str(seqId) + ' +1)'), contextId)
+        #        return
+        #    }
+        #}
+        # symbolData['ticker_sequence_id'] = seqId
+        # self._contextSetSymbolData(contextId, 'ticker', symbol, symbolData)
+        ticker = self.parse_ticker(data)
+        self.emit('ticker', ticker['symbol'], ticker)
+
+    def _websocket_request_first_order_book(self, contextId, symbol):
+        symbolData = self._contextGetSymbolData(contextId, 'ob', symbol)
+        restRequestMs = self.milliseconds()
+        symbolData['restRequestMs'] = restRequestMs
+        self._contextSetSymbolData(contextId, 'ob', symbol, symbolData)
+        self._awaitMethod(contextId, self._websocketMethodMap('fetchOrderBook'), [symbol], self._websocketMethodMap('_websocketProcessFirstOrderBook'), [contextId, symbol, restRequestMs])
+
+    def _websocket_process_first_order_book(self, ob, contextId, symbol, restRequestMs):
+        # ob = await self.fetch_order_book(symbol)
+        symbolData = self._contextGetSymbolData(contextId, 'ob', symbol)
+        if not('restRequestMs' in list(symbolData.keys())):
+            # not current request
+            return
+        if symbolData['restRequestMs'] != restRequestMs:
+            # not current request
+            return
+        deltas = symbolData['deltas']
+        # process orderbook deltas
+        currentObSequence = ob['timestamp']
+        obSequence = currentObSequence
+        checkLastSequence = False
+        for i in range(0, len(deltas)):
+            delta = deltas[i]
+            ob = self._websocket_process_order_book_delta(contextId, ob, delta, obSequence, checkLastSequence)
+            data = delta['data']
+            sequenceEnd = self.safe_integer(data, 'sequenceEnd')
+            if sequenceEnd > obSequence:
+                checkLastSequence = True
+                obSequence = sequenceEnd
+        symbolData['deltas'] = None
+        symbolData['lastSequence'] = obSequence
+        symbolData['ob'] = ob
+        self.emit('ob', symbol, self._cloneOrderBook(symbolData['ob'], symbolData['limit']))
+        self._contextSetSymbolData(contextId, 'ob', symbol, symbolData)
+
+    def _websocket_process_order_book_delta(self, contextId, ob, delta, lastSequence, checkLastSequence):
+        data = delta['data']
+        sequenceStart = self.safe_integer(data, 'sequenceStart')
+        nextSequence = lastSequence
+        nextSequence = self.sum(nextSequence, 1)
+        if checkLastSequence and(nextSequence != sequenceStart):
+            self.emit('err', NetworkError('sequence id error in exchange: ' + self.id + '(' + str(nextSequence) + ' !=' + str(sequenceStart) + ')'), contextId)
+            return
+        sequenceEnd = self.safe_integer(data, 'sequenceEnd')
+        if lastSequence < sequenceEnd:
+            # process it
+            changes = self.safe_value(data, 'changes')
+            keys = list(changes.keys())
+            for k in range(0, len(keys)):
+                isBid = (keys[k] == 'bids')
+                bidsOrAsks = self.safe_value(changes, keys[k])
+                for a in range(0, len(bidsOrAsks)):
+                    bidOrAsk = bidsOrAsks[a]
+                    price = float(bidOrAsk[0])
+                    amount = float(bidOrAsk[1])
+                    sequence = int(bidOrAsk[2])
+                    if lastSequence < sequence:
+                        self.updateBidAsk([price, amount], ob[keys[k]], isBid)
+        return ob
+
+    def _websocket_subscribe(self, contextId, event, symbol, nonce, params={}):
+        if event != 'ob' and event != 'trade' and event != 'ticker':
+            raise NotSupported('subscribe ' + event + '(' + symbol + ') not supported for exchange ' + self.id)
+        id = self.market_id(symbol).upper()
+        payload = None
+        symbolData = self._contextGetSymbolData(contextId, event, symbol)
+        if event == 'ob':
+            payload = {
+                'id': nonce,
+                'type': 'subscribe',
+                'topic': '/market/level2:' + id,
+                'response': True,
+            }
+            symbolData['limit'] = self.safe_integer(params, 'limit', None)
+        elif event == 'trade':
+            payload = {
+                'id': nonce,
+                'type': 'subscribe',
+                'topic': '/market/match:' + id,
+                # 'topic': '/market/level3:' + id,
+                'privateChannel': False,
+                'response': True,
+            }
+        elif event == 'ticker':
+            payload = {
+                'id': nonce,
+                'type': 'subscribe',
+                'topic': '/market/snapshot:' + id,
+                'response': True,
+            }
+        self._contextSetSymbolData(contextId, event, symbol, symbolData)
+        self.websocketSendJson(payload)
+
+    def _websocket_unsubscribe(self, contextId, event, symbol, nonce, params={}):
+        if event != 'ob' and event != 'trade' and event != 'ticker':
+            raise NotSupported('unsubscribe ' + event + '(' + symbol + ') not supported for exchange ' + self.id)
+        id = self.market_id(symbol).upper()
+        payload = None
+        if event == 'ob':
+            payload = {
+                'id': nonce,
+                'type': 'unsubscribe',
+                'topic': '/market/level2:' + id,
+                'response': True,
+            }
+        elif event == 'trade':
+            payload = {
+                'id': nonce,
+                'type': 'unsubscribe',
+                'topic': '/market/match:' + id,
+                # 'topic': '/market/level3:' + id,
+                'privateChannel': False,
+                'response': True,
+            }
+        elif event == 'ticker':
+            payload = {
+                'id': nonce,
+                'type': 'unsubscribe',
+                'topic': '/market/snapshot:' + id,
+                'response': True,
+            }
+        self.websocketSendJson(payload)

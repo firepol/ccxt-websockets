@@ -29,3 +29,7 @@ class WebsocketBaseConnection (ABC, EventEmitter):
 
     def sendJson(self, data):
         self.send(json.dumps(data))
+
+    def sendPing(self, data):
+        raise "Not Implemented"
+

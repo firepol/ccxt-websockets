@@ -34,6 +34,7 @@ class okex (okcoinusd):
                     'https://www.okex.com/docs/en/',
                 ],
                 'fees': 'https://www.okex.com/pages/products/fees.html',
+                'referral': 'https://www.okex.com',
             },
             'fees': {
                 'trading': {
@@ -61,6 +62,7 @@ class okex (okcoinusd):
                 'HSR': 'HC',
                 'MAG': 'Maggie',
                 'YOYO': 'YOYOW',
+                'WIN': 'WinToken',  # https://github.com/ccxt/ccxt/issues/5701
             },
             'wsconf': {
                 'conx-tpls': {

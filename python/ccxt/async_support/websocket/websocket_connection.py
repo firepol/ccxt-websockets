@@ -43,6 +43,13 @@ class MyClientProtocol(WebSocketClientProtocol):
             self.event_emitter.emit('err', Exception(reason))
         else:
             self.event_emitter.emit('close')
+    
+    def onPong(self, payload):
+        if self.verbose:
+            print("WebsocketConnection: PONG ")
+            print(payload)
+            sys.stdout.flush
+        self.event_emitter.emit('pong', payload.decode('utf8'))
 
 
 class WebsocketConnection(WebsocketBaseConnection):
@@ -110,6 +117,9 @@ class WebsocketConnection(WebsocketBaseConnection):
     def send(self, data):
         if self.client is not None:
             self.client.sendMessage(data.encode('utf8'))
+    
+    def sendPing(self, data):
+        self.client.sendPing((""+str(data)).encode('utf8'))
 
     def isActive(self):
         return (self.client is not None) and ((self.client.state == WebSocketClientProtocol.STATE_OPEN) or (self.client.state == WebSocketClientProtocol.STATE_CONNECTING))
